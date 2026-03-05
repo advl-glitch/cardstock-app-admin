@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+    <title>Prints by Angel — Inventory</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css"/>
+    <link rel="stylesheet" href="style.css">
+
+    <!-- Favicon & Home Screen Icon -->
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
+    <link rel="manifest" href="manifest.json">
+</head>
+<body>
+
+    <!-- Mobile Header -->
+    <header class="mobile-header">
+        <button class="hamburger" id="hamburger-btn" aria-label="Menu">
+            <span></span><span></span><span></span>
+        </button>
+        <div class="mobile-logo">
+            <span class="logo-icon">✦</span>
+            <span>Prints by Angel</span>
+        </div>
+        <div class="mobile-header-right"></div>
+    </header>
+
+    <!-- Sidebar Overlay -->
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="logo">
+                <div class="logo-mark">✦</div>
+                <div class="logo-text">
+                    <span class="logo-title">Prints by Angel</span>
+                    <span class="logo-sub">Inventory & Tracking</span>
+                </div>
+            </div>
+        </div>
+
+        <nav class="sidebar-nav">
+            <div class="nav-section-label">Main</div>
+            <button class="nav-item active" data-page="home">
+                <span class="nav-icon">⌂</span>
+                <span class="nav-label">Dashboard</span>
+            </button>
+            <button class="nav-item" data-page="master-items">
+                <span class="nav-icon">◫</span>
+                <span class="nav-label">Main Inventory List</span>
+            </button>
+
+            <div class="nav-section-label">Inventory</div>
+            <button class="nav-item" data-page="new-item-design">
+                <span class="nav-icon">✚</span>
+                <span class="nav-label">Add New Design</span>
+            </button>
+            <button class="nav-item" data-page="print-stock-updater">
+                <span class="nav-icon">⟳</span>
+                <span class="nav-label">Print Stock Update</span>
+            </button>
+            <button class="nav-item" data-page="inventory-auditor">
+                <span class="nav-icon">✓</span>
+                <span class="nav-label">Inventory Audit</span>
+            </button>
+
+            <div class="nav-section-label">Retail</div>
+            <button class="nav-item" data-page="record-sale">
+                <span class="nav-icon">◈</span>
+                <span class="nav-label">Retail Stock & Sales</span>
+            </button>
+            <button class="nav-item" data-page="retail-partners">
+                <span class="nav-icon">❖</span>
+                <span class="nav-label">Retail Partners</span>
+            </button>
+            <button class="nav-item" data-page="vending-machines">
+                <span class="nav-icon">🎰</span>
+                <span class="nav-label">Vending Machines</span>
+            </button>
+            <button class="nav-item" data-page="orders">
+                <span class="nav-icon">📋</span>
+                <span class="nav-label">Orders & Requests</span>
+            </button>
+
+            <div class="nav-section-label">Reports</div>
+            <button class="nav-item" data-page="sales-reports">
+                <span class="nav-icon">◎</span>
+                <span class="nav-label">Sales Reports</span>
+            </button>
+
+            <div class="nav-section-label">System</div>
+            <button class="nav-item" data-page="settings">
+                <span class="nav-icon">⚙</span>
+                <span class="nav-label">Settings</span>
+            </button>
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="sidebar-footer-text">PrintsByAngel © 2026</div>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content" id="app-container">
+        <!-- Pages render here -->
+    </main>
+
+    <!-- Detail Panel (slide-out) -->
+    <div class="detail-panel" id="detail-panel">
+        <div class="detail-panel-inner">
+            <button class="detail-close" id="detail-close">✕</button>
+            <div class="detail-panel-content" id="detail-panel-content"></div>
+        </div>
+    </div>
+    <div class="detail-overlay" id="detail-overlay"></div>
+
+    <!-- Modal -->
+    <div class="modal-overlay" id="modal-overlay">
+        <div class="modal" id="modal">
+            <button class="modal-close" id="modal-close">✕</button>
+            <div class="modal-content" id="modal-content"></div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div class="toast" id="toast"></div>
+
+    <!-- Hidden record-sale template -->
+    <div id="record-sale-page" style="display:none;">
+        <div class="card" style="margin-bottom:1.5rem;">
+            <div class="form-field">
+                <label class="field-label">Select a Retail Partner</label>
+                <select id="retail-partner-select"></select>
+            </div>
+        </div>
+        <div id="retail-partner-info" style="display:none;">
+            <div class="partner-info-header">
+                <div>
+                    <h2 id="retail-partner-name" class="partner-name"></h2>
+                    <p class="partner-last-visit">Last Inventory: <span id="last-visit-date"></span></p>
+                </div>
+                <button class="btn btn-secondary" id="sales-report-btn">📄 Generate Report</button>
+            </div>
+            <h3 class="section-title">Inventory on Hand</h3>
+            <div id="inventory-list-container"></div>
+            <template id="inventory-item-template">
+                <div class="inventory-card">
+                    <div class="inventory-card-header">
+                        <h4 class="design-name"></h4>
+                        <span class="stock-badge"><span class="current-stock">0</span> on shelf</span>
+                    </div>
+                    <div class="inventory-actions">
+                        <div class="action-field">
+                            <label>Update Stock</label>
+                            <input type="number" class="update-stock-input action-input" placeholder="New total" min="0">
+                        </div>
+                        <div class="action-field">
+                            <label>Add Cards</label>
+                            <input type="number" class="add-stock-input action-input" placeholder="+ qty" min="0">
+                        </div>
+                        <div class="action-field">
+                            <label>Pull Cards</label>
+                            <input type="number" class="pull-stock-input action-input" placeholder="- qty" min="0">
+                        </div>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="Letterpress-Inventory-App.js"></script>
+</body>
+</html>
