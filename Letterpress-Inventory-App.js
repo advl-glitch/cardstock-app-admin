@@ -569,7 +569,6 @@ async function renderMasterItemsPage() {
         <p class="page-subtitle">All designs in your collection</p>
       </div>
       <div class="page-actions">
-        <button class="btn btn-secondary" onclick="refreshInventory()">↺ Refresh</button>
         <button class="btn btn-primary" onclick="document.querySelector('[data-page=new-item-design]').click()">✚ Add Design</button>
       </div>
     </div>
@@ -619,20 +618,11 @@ async function renderMasterItemsPage() {
   loadFilterPanel();
 
   document.getElementById('items-search')?.addEventListener('input', (e) => {
-    const q    = e.target.value.toLowerCase();
-    // Always start from full cache, then apply active tag filters, then text
-    let pool   = itemsCache || [];
-    if (activeTagFilters.size > 0) {
-      pool = pool.filter(item => {
-        const tagIds = item._tagIds || [];
-        return [...activeTagFilters].some(tagId => tagIds.includes(tagId));
-      });
-    }
-    const filtered = q
-      ? pool.filter(item =>
-          (item.DisplayName || item.Name || '').toLowerCase().includes(q) ||
-          String(item.ItemID).includes(q))
-      : pool;
+    const q        = e.target.value.toLowerCase();
+    const filtered = (itemsCache || []).filter(item =>
+      (item.DisplayName || item.Name || '').toLowerCase().includes(q) ||
+      String(item.ItemID).includes(q)
+    );
     currentItems = filtered;
     const isGrid = document.getElementById('grid-view-btn').classList.contains('active');
     isGrid ? renderItemsGrid(filtered) : renderItemsList(filtered);
@@ -694,14 +684,9 @@ function closeFilterPanel() {
 
 function clearAllFilters() {
   activeTagFilters.clear();
-  const searchInput = document.getElementById('items-search');
-  if (searchInput) searchInput.value = '';
   renderFilterPanelBody();
   updateActiveFiltersBar();
   currentItems = itemsCache || [];
-  const count = document.getElementById('filter-count');
-  if (count) { count.style.display = 'none'; }
-  document.getElementById('filter-btn')?.classList.remove('has-filters');
   const isGrid = document.getElementById('grid-view-btn')?.classList.contains('active');
   isGrid ? renderItemsGrid(currentItems) : renderItemsList(currentItems);
 }
@@ -709,15 +694,7 @@ function clearAllFilters() {
 function applyFilters() {
   closeFilterPanel();
   updateActiveFiltersBar();
-  const allItems = itemsCache || [];
-  if (activeTagFilters.size > 0) {
-    currentItems = allItems.filter(item => {
-      const tagIds = item._tagIds || [];
-      return [...activeTagFilters].some(tagId => tagIds.includes(tagId));
-    });
-  } else {
-    currentItems = allItems;
-  }
+  currentItems = itemsCache || [];
   const count = document.getElementById('filter-count');
   if (count) {
     if (activeTagFilters.size > 0) {
@@ -755,7 +732,6 @@ async function fetchAndDisplayItems() {
     if (!itemsCache) {
       const response = await fetch(`${GOOGLE_SCRIPT_URL}?action=getItems`);
       const data     = await response.json();
-      // _tagIds are bundled into each item by the server
       if (data.success) itemsCache = data.items.filter(i => i.ItemID);
     }
     currentItems = itemsCache || [];
@@ -763,18 +739,6 @@ async function fetchAndDisplayItems() {
   } catch (e) {
     document.getElementById('items-container').innerHTML = dogError('Couldn\'t load items. Check your connection.');
   }
-}
-
-async function refreshInventory() {
-  itemsCache = null;
-  tagsCache  = null;
-  activeTagFilters.clear();
-  const searchInput = document.getElementById('items-search');
-  if (searchInput) searchInput.value = '';
-  document.getElementById('items-container').innerHTML = dogLoading('Refreshing...');
-  await fetchAndDisplayItems();
-  await loadFilterPanel();
-  showToast('Inventory refreshed!', 'success');
 }
 
 function isNewItem(item) {
@@ -917,15 +881,7 @@ function openEditItemModal(itemId) {
       <div id="edit-item-status" class="form-status"></div>
     </form>`);
 
-  (async () => {
-    try {
-      const r = await fetch(`${GOOGLE_SCRIPT_URL}?action=getItemTags&itemId=${itemId}`);
-      const d = await r.json();
-      loadTagsForEdit('edit-tags-container', d.success ? d.tagIds : []);
-    } catch(e) {
-      loadTagsForEdit('edit-tags-container', []);
-    }
-  })();
+  loadTagsForEdit('edit-tags-container', []);
   document.getElementById('edit-item-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const status       = document.getElementById('edit-item-status');
@@ -949,7 +905,7 @@ function openEditItemModal(itemId) {
         status.className  = 'form-status success';
         status.textContent = '✅ Design updated!';
         showToast('Design updated!', 'success');
-        setTimeout(() => { closeModal(); closeDetailPanel(); renderMasterItemsPage(); }, 1200);
+        setTimeout(() => { closeModal(); closeDetailPanel(); }, 1200);
       } else throw new Error(result.error);
     } catch (err) {
       status.className  = 'form-status error';
@@ -961,8 +917,9 @@ function openEditItemModal(itemId) {
 async function handlePhotoUpload(input) {
   const file     = input.files[0];
   if (!file) return;
-  const statusEl = document.getElementById('photo-upload-status');
-  if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = 'Processing photo...'; }
+  const statusEl  = document.getElementById('photo-upload-status');
+  const urlInput  = document.getElementById('edit-photo-url');
+  if (statusEl) { statusEl.style.display = 'block'; statusEl.style.color = 'var(--teal)'; statusEl.textContent = 'Processing photo...'; }
   const canvas = document.createElement('canvas');
   const img    = new Image();
   const reader = new FileReader();
@@ -977,14 +934,26 @@ async function handlePhotoUpload(input) {
       const base64 = canvas.toDataURL('image/jpeg', 0.75).split(',')[1];
       if (statusEl) statusEl.textContent = 'Uploading to Drive...';
       try {
-        const r      = await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action: 'uploadPhoto', base64, filename: file.name }) });
+        const controller = new AbortController();
+        const timeout    = setTimeout(() => controller.abort(), 30000);
+        const r          = await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action: 'uploadPhoto', base64, filename: file.name }), signal: controller.signal });
+        clearTimeout(timeout);
         const result = await r.json();
         if (result.success && result.url) {
-          document.getElementById('edit-photo-url').value = result.url;
+          if (urlInput) urlInput.value = result.url;
+          // Show a live preview on success
+          let previewWrap = document.querySelector('.photo-preview-wrap');
+          if (!previewWrap) {
+            previewWrap = document.createElement('div');
+            previewWrap.className = 'photo-preview-wrap';
+            document.querySelector('.photo-upload-area')?.before(previewWrap);
+          }
+          previewWrap.innerHTML = `<img class="photo-preview-thumb" src="${result.url}" alt="Uploaded photo">`;
           if (statusEl) { statusEl.textContent = '✅ Photo uploaded!'; statusEl.style.color = 'var(--green)'; }
         } else throw new Error(result.error || 'Upload failed');
       } catch (err) {
-        if (statusEl) { statusEl.textContent = '⚠️ Drive upload unavailable — paste URL manually.'; statusEl.style.color = 'var(--amber)'; }
+        const msg = err.name === 'AbortError' ? 'Upload timed out — check your connection.' : 'Drive upload failed: ' + err.message;
+        if (statusEl) { statusEl.textContent = '⚠️ ' + msg; statusEl.style.color = 'var(--amber)'; }
       }
     };
     img.src = e.target.result;
@@ -1098,6 +1067,10 @@ function openAddTagModal() {
 // ============================================================
 // ADD NEW DESIGN
 // ============================================================
+
+// Map of known item types → retail prices (populated from existing items)
+let itemTypePriceMap = {};
+
 async function renderNewItemDesignPage() {
   appContainer.innerHTML = `
     <div class="page-header">
@@ -1106,14 +1079,28 @@ async function renderNewItemDesignPage() {
     <div class="form-page-container"><div class="form-section">${dogLoading('Loading...')}</div></div>`;
 
   try {
-    const [idRes, tagsRes] = await Promise.all([
+    const [idRes, tagsRes, itemsRes] = await Promise.all([
       fetch(`${GOOGLE_SCRIPT_URL}?action=getNextItemId`).then(r => r.json()),
       fetch(`${GOOGLE_SCRIPT_URL}?action=getTags`).then(r => r.json()),
+      itemsCache ? Promise.resolve({ success: true, items: itemsCache }) :
+        fetch(`${GOOGLE_SCRIPT_URL}?action=getItems`).then(r => r.json()),
     ]);
     if (!idRes.success) throw new Error(idRes.error);
     if (tagsRes.success) tagsCache = tagsRes.tags;
+    if (itemsRes.success) itemsCache = itemsRes.items.filter(i => i.ItemID);
+
     const nextId = idRes.nextId;
     const today  = new Date().toLocaleDateString('en-CA');
+
+    // Build item type → price map from existing items
+    itemTypePriceMap = {};
+    (itemsCache || []).forEach(item => {
+      const t = (item.ProductType || '').trim();
+      const p = parseFloat(item.UnitPrice);
+      if (t && !isNaN(p) && p > 0) itemTypePriceMap[t] = p;
+    });
+    const knownTypes = Object.keys(itemTypePriceMap).sort();
+
     const categories = {};
     (tagsCache || []).forEach(tag => {
       if (!categories[tag.Category]) categories[tag.Category] = [];
@@ -1143,14 +1130,47 @@ async function renderNewItemDesignPage() {
               <label class="field-label">Design Name *</label>
               <input class="field-input" type="text" name="designName" placeholder="e.g. Gulf Coast Sunrise" required>
             </div>
+
+            <!-- Card / Item Type — combo dropdown -->
             <div class="form-field">
               <label class="field-label">Card / Item Type *</label>
-              <input class="field-input" type="text" name="itemType" placeholder="e.g. Folded Card, Postcard" required>
+              <div class="combo-dropdown-wrap" id="itemtype-combo-wrap">
+                <div class="combo-dropdown-display" id="itemtype-display" onclick="toggleComboDropdown('itemtype')">
+                  <span id="itemtype-display-text" class="combo-placeholder">Select or type a new type...</span>
+                  <span class="combo-chevron">▾</span>
+                </div>
+                <div class="combo-dropdown-panel" id="itemtype-panel" style="display:none;">
+                  <div class="combo-search-wrap">
+                    <input class="combo-search-input" id="itemtype-search" type="text"
+                      placeholder="Type to search or add new..."
+                      oninput="filterComboOptions('itemtype', this.value)"
+                      onkeydown="comboKeydown(event, 'itemtype')">
+                  </div>
+                  <div class="combo-options" id="itemtype-options">
+                    ${knownTypes.map(t => `
+                      <div class="combo-option" onclick="selectComboOption('itemtype', '${t.replace(/'/g, "\\'")}')">
+                        ${t} <span class="combo-option-price">$${itemTypePriceMap[t].toFixed(2)}</span>
+                      </div>`).join('')}
+                  </div>
+                  <div class="combo-add-new" id="itemtype-add-new" style="display:none;">
+                    <button type="button" class="combo-add-btn" onclick="addNewItemType()">✚ Add "<span id="itemtype-new-label"></span>" as new type</button>
+                  </div>
+                </div>
+              </div>
+              <input type="hidden" name="itemType" id="itemtype-value" required>
             </div>
+
+            <!-- Retail Price — auto-populated, greyed when paired -->
             <div class="form-field">
               <label class="field-label">Retail Price</label>
-              <input class="field-input" type="number" name="unitPrice" placeholder="e.g. 6.00" step="0.01" min="0">
+              <div style="position:relative;">
+                <input class="field-input" type="number" name="unitPrice" id="unitprice-input"
+                  placeholder="e.g. 6.00" step="0.01" min="0">
+                <div id="unitprice-lock-badge" style="display:none;position:absolute;right:0.6rem;top:50%;transform:translateY(-50%);font-size:0.7rem;color:var(--brown-light);background:var(--cream);padding:0.15rem 0.5rem;border-radius:8px;pointer-events:none;">auto</div>
+              </div>
+              <div class="field-hint" id="unitprice-hint"></div>
             </div>
+
             <div class="form-field">
               <label class="field-label">First Print Run Quantity *</label>
               <input class="field-input" type="number" name="firstRun" placeholder="e.g. 50" min="0" required>
@@ -1193,8 +1213,92 @@ async function renderNewItemDesignPage() {
       </div>`;
 
     document.getElementById('new-item-form').addEventListener('submit', handleAddNewItem);
+
+    // Close combo on outside click
+    document.addEventListener('click', function closeCombo(e) {
+      if (!e.target.closest('#itemtype-combo-wrap')) {
+        document.getElementById('itemtype-panel').style.display = 'none';
+      }
+    });
+
   } catch (e) {
     appContainer.innerHTML = `<div class="dog-state">${dogError(e.message)}</div>`;
+  }
+}
+
+// ---- Combo dropdown helpers ----
+function toggleComboDropdown(id) {
+  const panel = document.getElementById(`${id}-panel`);
+  const isOpen = panel.style.display !== 'none';
+  panel.style.display = isOpen ? 'none' : 'block';
+  if (!isOpen) document.getElementById(`${id}-search`)?.focus();
+}
+
+function filterComboOptions(id, query) {
+  const options  = document.querySelectorAll(`#${id}-options .combo-option`);
+  const q        = query.toLowerCase();
+  let anyVisible = false;
+  options.forEach(opt => {
+    const match = opt.textContent.toLowerCase().includes(q);
+    opt.style.display = match ? '' : 'none';
+    if (match) anyVisible = true;
+  });
+  // Show "add new" if typed something not matching exactly
+  const addNew  = document.getElementById(`${id}-add-new`);
+  const newLabel = document.getElementById(`${id}-new-label`);
+  if (addNew && newLabel) {
+    const exactMatch = Object.keys(itemTypePriceMap).some(t => t.toLowerCase() === q);
+    addNew.style.display = (query.length > 0 && !exactMatch) ? '' : 'none';
+    newLabel.textContent = query;
+  }
+}
+
+function selectComboOption(id, value) {
+  document.getElementById(`${id}-value`).value = value;
+  document.getElementById(`${id}-display-text`).textContent = value;
+  document.getElementById(`${id}-display-text`).classList.remove('combo-placeholder');
+  document.getElementById(`${id}-panel`).style.display = 'none';
+  document.getElementById(`${id}-search`).value = '';
+  // Auto-populate price if known
+  if (id === 'itemtype' && itemTypePriceMap[value]) {
+    const priceInput = document.getElementById('unitprice-input');
+    const badge      = document.getElementById('unitprice-lock-badge');
+    const hint       = document.getElementById('unitprice-hint');
+    priceInput.value    = itemTypePriceMap[value].toFixed(2);
+    priceInput.style.background = 'var(--cream)';
+    priceInput.readOnly = true;
+    badge.style.display = 'block';
+    hint.textContent    = `Price auto-filled from "${value}" type. Edit in Sheets to change.`;
+  }
+  filterComboOptions(id, '');
+}
+
+function addNewItemType() {
+  const query = document.getElementById('itemtype-search')?.value?.trim();
+  if (!query) return;
+  // Select it as a new type with no auto-price
+  document.getElementById('itemtype-value').value = query;
+  document.getElementById('itemtype-display-text').textContent = query;
+  document.getElementById('itemtype-display-text').classList.remove('combo-placeholder');
+  document.getElementById('itemtype-panel').style.display = 'none';
+  // Unlock price since it's new
+  const priceInput = document.getElementById('unitprice-input');
+  priceInput.readOnly = false;
+  priceInput.style.background = '';
+  document.getElementById('unitprice-lock-badge').style.display = 'none';
+  document.getElementById('unitprice-hint').textContent = 'New type — please enter the retail price.';
+  priceInput.focus();
+}
+
+function comboKeydown(event, id) {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    const query = event.target.value.trim();
+    if (query) {
+      const exactKey = Object.keys(itemTypePriceMap).find(t => t.toLowerCase() === query.toLowerCase());
+      if (exactKey) { selectComboOption(id, exactKey); }
+      else { addNewItemType(); }
+    }
   }
 }
 
@@ -1202,10 +1306,17 @@ async function handleAddNewItem(event) {
   event.preventDefault();
   const form     = event.target;
   const status   = document.getElementById('form-status');
+  // Validate combo field
+  const itemTypeVal = document.getElementById('itemtype-value')?.value?.trim();
+  if (!itemTypeVal) {
+    status.className = 'form-status error'; status.textContent = '❌ Please select or enter a Card / Item Type.';
+    return;
+  }
   status.className  = 'form-status loading';
   status.textContent = 'Saving design...';
   const formData     = new FormData(form);
   const rawData      = Object.fromEntries(formData.entries());
+  rawData.itemType   = itemTypeVal; // use the combo value
   const selectedTags = [...document.querySelectorAll('.new-tag-check:checked')].map(c => c.value);
   const payload      = {
     action: 'addItem',
@@ -1309,60 +1420,424 @@ async function handleAddPrintRun(event) {
 // ============================================================
 // RETAIL STOCK & SALES
 // ============================================================
-function renderRecordSalePage() {
-  const template = document.getElementById('record-sale-page');
-  if (template) {
-    appContainer.innerHTML = `
-      <div class="page-header">
-        <div><h1 class="page-title">Retail Stock & Sales</h1><p class="page-subtitle">Update inventory at your retail partners</p></div>
-      </div>` + template.innerHTML;
-  }
-  setupRecordSalePage();
-}
 
-async function setupRecordSalePage() {
-  const partnerSelect = appContainer.querySelector('#retail-partner-select');
-  const partnerInfo   = appContainer.querySelector('#retail-partner-info');
-  const inventoryList = appContainer.querySelector('#inventory-list-container');
-  if (!partnerSelect) return;
+// Stores inventory state for the currently-selected partner
+let retailInventoryState = []; // { designId, designName, unitPrice, previousStock, currentStock, pulled, added }
+let retailCurrentPartnerId   = null;
+let retailCurrentPartnerName = null;
+
+async function renderRecordSalePage() {
+  // Show dog loading while partners fetch
+  appContainer.innerHTML = `
+    <div class="page-header">
+      <div><h1 class="page-title">Retail Stock & Sales</h1><p class="page-subtitle">Update inventory at your retail partners</p></div>
+    </div>
+    <div id="rss-loading-state">${dogLoading('Loading partners...')}</div>
+    <div id="rss-main" style="display:none;">
+      <div class="card" style="margin-bottom:1.5rem;">
+        <div class="form-field">
+          <label class="field-label">Select a Retail Partner</label>
+          <select id="retail-partner-select"></select>
+        </div>
+      </div>
+      <div id="retail-partner-info" style="display:none;"></div>
+    </div>`;
 
   try {
-    const r    = await fetch(`${GOOGLE_SCRIPT_URL}?action=getRetailPartners`);
-    const data = await r.json();
-    if (!data.success) throw new Error(data.error);
-    new Choices(partnerSelect, { choices: data.partners, searchEnabled: true, searchPlaceholderValue: 'Type to search partners...', itemSelectText: '', allowHTML: true, placeholderValue: 'Select a partner...', shouldSort: false });
+    // Fetch partners and items in parallel
+    const [partnerRes, itemsRes] = await Promise.all([
+      fetch(`${GOOGLE_SCRIPT_URL}?action=getRetailPartners`).then(r => r.json()),
+      itemsCache ? Promise.resolve({ success: true, items: itemsCache }) :
+        fetch(`${GOOGLE_SCRIPT_URL}?action=getItems`).then(r => r.json()),
+    ]);
+    if (!partnerRes.success) throw new Error(partnerRes.error);
+    if (itemsRes.success) itemsCache = itemsRes.items.filter(i => i.ItemID);
+
+    // Hide loading, show main
+    document.getElementById('rss-loading-state').style.display = 'none';
+    document.getElementById('rss-main').style.display = 'block';
+
+    const partnerSelect = appContainer.querySelector('#retail-partner-select');
+    new Choices(partnerSelect, {
+      choices: partnerRes.partners,
+      searchEnabled: true,
+      searchPlaceholderValue: 'Type to search partners...',
+      itemSelectText: '',
+      allowHTML: true,
+      placeholderValue: 'Select a partner...',
+      shouldSort: false,
+    });
+
+    partnerSelect.addEventListener('change', (e) => {
+      const partnerId = e.target.value;
+      if (!partnerId) {
+        document.getElementById('retail-partner-info').style.display = 'none';
+        return;
+      }
+      const partner = (partnerRes.partners || []).find(p => p.value === partnerId);
+      retailCurrentPartnerId   = partnerId;
+      retailCurrentPartnerName = partner?.label || partnerId;
+      loadPartnerInventoryView(partnerId, partner);
+    });
+
   } catch (e) {
-    partnerSelect.innerHTML = `<option>Error loading partners</option>`;
+    document.getElementById('rss-loading-state').innerHTML = `<div class="dog-state">${dogError(e.message)}</div>`;
+  }
+}
+
+async function loadPartnerInventoryView(partnerId, partnerMeta) {
+  const infoArea = document.getElementById('retail-partner-info');
+  infoArea.style.display = 'block';
+  infoArea.innerHTML = dogLoading('Loading inventory...');
+
+  try {
+    const [partnerRes, salesRes] = await Promise.all([
+      fetch(`${GOOGLE_SCRIPT_URL}?action=getPartnerInventory&partnerId=${partnerId}`).then(r => r.json()),
+      fetch(`${GOOGLE_SCRIPT_URL}?action=getPartnerSalesHistory&partnerId=${partnerId}`).then(r => r.json()).catch(() => ({ success: false })),
+    ]);
+    if (!partnerRes.success) throw new Error(partnerRes.error);
+
+    const { name, lastVisit, inventory } = partnerRes.data;
+    retailCurrentPartnerName = name;
+
+    // Build inventory state
+    retailInventoryState = (inventory || []).map(item => ({
+      designId:      item.designId,
+      designName:    item.designName,
+      unitPrice:     item.unitPrice || (itemsCache || []).find(i => String(i.ItemID) === String(item.designId))?.UnitPrice || 0,
+      previousStock: item.currentStock,
+      currentStock:  item.currentStock,
+      pulled:        0,
+      added:         0,
+      isNew:         false,
+    }));
+
+    // Sales history for the mini stat tile
+    const salesHistory = salesRes.success ? (salesRes.history || []) : [];
+
+    infoArea.innerHTML = buildPartnerInventoryHTML(name, lastVisit, salesHistory, partnerMeta);
+    renderInventoryCards();
+    setupInventoryPageEvents(partnerId);
+
+  } catch (e) {
+    infoArea.innerHTML = `<div class="dog-state">${dogError(e.message)}</div>`;
+  }
+}
+
+function buildPartnerInventoryHTML(name, lastVisit, salesHistory, partnerMeta) {
+  // Compute sales mini-stats
+  const allPartners   = partnersCache || [];
+  const partnerRanks  = computePartnerRankings(allPartners, salesHistory);
+  const rankInfo      = partnerRanks.find(p => p.id === retailCurrentPartnerId) || {};
+  const rankPlace     = rankInfo.rank || null;
+  const totalPartners = allPartners.length || 1;
+
+  const lastMonthActual  = salesHistory[0]?.actualSales ?? null;
+  const lastMonthEst     = salesHistory[0]?.estimatedSales ?? null;
+  const lastMonthCards   = salesHistory[0]?.cardsSold ?? null;
+  const totalActual      = salesHistory.reduce((s, r) => s + (r.actualSales || 0), 0);
+  const totalCards       = salesHistory.reduce((s, r) => s + (r.cardsSold || 0), 0);
+
+  const rankDisplay = (() => {
+    if (!rankPlace) return `<span style="color:var(--brown-light);font-size:0.8rem;">No rank data yet</span>`;
+    if (rankPlace === 1) return `<span class="rank-badge rank-gold">🥇 #1 Top Seller</span>`;
+    if (rankPlace === 2) return `<span class="rank-badge rank-silver">🥈 #2 of ${totalPartners}</span>`;
+    if (rankPlace === 3) return `<span class="rank-badge rank-bronze">🥉 #3 of ${totalPartners}</span>`;
+    return `<span class="rank-badge rank-plain">#${rankPlace} of ${totalPartners} partners</span>`;
+  })();
+
+  return `
+    <!-- Partner Header -->
+    <div class="partner-info-header" style="margin-bottom:1rem;">
+      <div>
+        <h2 id="retail-partner-name" class="partner-name">${name}</h2>
+        <p class="partner-last-visit">Last Inventory: <span id="last-visit-date">${lastVisit || 'Never'}</span></p>
+      </div>
+      <button class="btn btn-secondary" onclick="generatePartnerReport()">📄 Generate Report</button>
+    </div>
+
+    <!-- Mini Stats Tile -->
+    <div class="rss-mini-stats-tile">
+      <div class="rss-mini-stat">
+        <div class="rss-mini-stat-label">Last Mo. Actual</div>
+        <div class="rss-mini-stat-value">${lastMonthActual != null ? '$' + lastMonthActual.toFixed(2) : '—'}</div>
+      </div>
+      <div class="rss-mini-stat">
+        <div class="rss-mini-stat-label">Last Mo. Estimated</div>
+        <div class="rss-mini-stat-value">${lastMonthEst != null ? '$' + lastMonthEst.toFixed(2) : '—'}</div>
+      </div>
+      <div class="rss-mini-stat">
+        <div class="rss-mini-stat-label">Cards Sold (Last Mo.)</div>
+        <div class="rss-mini-stat-value">${lastMonthCards != null ? lastMonthCards : '—'}</div>
+      </div>
+      <div class="rss-mini-stat">
+        <div class="rss-mini-stat-label">Total Actual Sales</div>
+        <div class="rss-mini-stat-value">${totalActual > 0 ? '$' + totalActual.toFixed(2) : '—'}</div>
+      </div>
+      <div class="rss-mini-stat">
+        <div class="rss-mini-stat-label">Total Cards Sold</div>
+        <div class="rss-mini-stat-value">${totalCards > 0 ? totalCards : '—'}</div>
+      </div>
+      <div class="rss-mini-stat">
+        <div class="rss-mini-stat-label">Partner Ranking</div>
+        <div class="rss-mini-stat-value">${rankDisplay}</div>
+      </div>
+    </div>
+
+    <!-- Log Actual Sales -->
+    <div class="card" style="margin-bottom:1.25rem;border-left:4px solid var(--teal);">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;flex-wrap:wrap;gap:0.5rem;">
+        <div class="form-section-title" style="margin:0;">💵 Log Actual Consignment Payment</div>
+      </div>
+      <div style="display:flex;gap:1rem;align-items:flex-end;flex-wrap:wrap;">
+        <div class="form-field" style="flex:1;min-width:160px;margin:0;">
+          <label class="field-label">Month / Period</label>
+          <input class="field-input" type="month" id="actual-sale-month" value="${new Date().toISOString().slice(0,7)}">
+        </div>
+        <div class="form-field" style="flex:1;min-width:160px;margin:0;">
+          <label class="field-label">Actual Payment Received ($)</label>
+          <input class="field-input" type="number" id="actual-sale-amount" placeholder="e.g. 42.50" step="0.01" min="0">
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="saveActualSale()">💾 Save Payment</button>
+      </div>
+      <div id="actual-sale-status" class="form-status" style="margin-top:0.5rem;"></div>
+    </div>
+
+    <!-- Inventory on Hand -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;flex-wrap:wrap;gap:0.5rem;">
+      <h3 class="section-title" style="margin:0;">Inventory on Hand</h3>
+      <div style="display:flex;gap:0.5rem;">
+        <button class="btn btn-secondary btn-sm" onclick="openAddDesignToPartnerModal()">✚ Add Design to Store</button>
+        <button class="btn btn-primary" onclick="savePartnerInventory()">💾 Save All Updates</button>
+      </div>
+    </div>
+    <div id="inventory-list-container"></div>
+    <div style="margin-top:1rem;display:flex;justify-content:flex-end;">
+      <button class="btn btn-primary" onclick="savePartnerInventory()">💾 Save All Updates</button>
+    </div>`;
+}
+
+function renderInventoryCards() {
+  const container = document.getElementById('inventory-list-container');
+  if (!container) return;
+
+  const active = retailInventoryState.filter(item => item.pulled < item.previousStock || item.isNew || item.currentStock > 0);
+
+  if (active.length === 0 && retailInventoryState.length === 0) {
+    container.innerHTML = `<div class="dog-state">${dogEmpty('No inventory recorded for this partner yet.')}<br><button class="btn btn-primary" style="margin-top:1rem" onclick="openAddDesignToPartnerModal()">✚ Add First Design</button></div>`;
+    return;
   }
 
-  partnerSelect.addEventListener('change', async (e) => {
-    const partnerId = e.target.value;
-    if (!partnerId) { partnerInfo.style.display = 'none'; return; }
-    inventoryList.innerHTML = dogLoading('Loading inventory...');
-    partnerInfo.style.display = 'block';
-    try {
-      const r      = await fetch(`${GOOGLE_SCRIPT_URL}?action=getPartnerInventory&partnerId=${partnerId}`);
-      const result = await r.json();
-      if (!result.success) throw new Error(result.error);
-      const { name, lastVisit, inventory } = result.data;
-      appContainer.querySelector('#retail-partner-name').textContent = name;
-      appContainer.querySelector('#last-visit-date').textContent     = lastVisit;
-      inventoryList.innerHTML = '';
-      const tmpl = appContainer.querySelector('#inventory-item-template');
-      if (inventory.length === 0) {
-        inventoryList.innerHTML = `<div class="dog-state">${dogEmpty('No inventory recorded for this partner yet.')}</div>`;
-      } else {
-        inventory.forEach(item => {
-          const card = tmpl.content.cloneNode(true);
-          card.querySelector('.design-name').textContent    = `${item.designName} (#${item.designId})`;
-          card.querySelector('.current-stock').textContent  = item.currentStock;
-          inventoryList.appendChild(card);
-        });
-      }
-    } catch (e) {
-      inventoryList.innerHTML = `<div class="dog-state">${dogError(e.message)}</div>`;
-    }
+  // Filter out fully-pulled designs (pulled == previousStock means all gone)
+  const visible = retailInventoryState.filter(item => {
+    if (item.isNew) return true;
+    return !(item.pulled > 0 && item.pulled >= item.previousStock && !item.added);
   });
+
+  container.innerHTML = visible.map((item, idx) => {
+    const realIdx   = retailInventoryState.indexOf(item);
+    const estSold   = item.isNew ? 0 : Math.max(0, item.previousStock - item.currentStock - item.pulled + item.added);
+    const estRevenue = (estSold * Number(item.unitPrice || 0)).toFixed(2);
+    return `
+      <div class="inventory-card ${item.isNew ? 'inventory-card-new' : ''}">
+        <div class="inventory-card-header">
+          <h4 class="design-name">${item.designName}${item.designId ? ` <span style="color:var(--brown-light);font-weight:400;font-size:0.8rem;">(#${item.designId})</span>` : ''}</h4>
+          <span class="stock-badge"><span class="current-stock">${item.currentStock}</span> on shelf</span>
+        </div>
+        ${!item.isNew ? `
+        <div class="inventory-est-row">
+          <span class="inventory-est-label">Prev. stock: <strong>${item.previousStock}</strong></span>
+          <span class="inventory-est-label">Est. sold: <strong>${estSold > 0 ? estSold : '—'}</strong></span>
+          <span class="inventory-est-label">Est. revenue: <strong>${estSold > 0 ? '$' + estRevenue : '—'}</strong></span>
+        </div>` : ''}
+        <div class="inventory-actions">
+          <div class="action-field">
+            <label>Update Stock (New Total)</label>
+            <input type="number" class="action-input" placeholder="New total"
+              min="0" value="${item.currentStock || ''}"
+              oninput="updateInventoryField(${realIdx}, 'currentStock', this.value)"
+              onchange="updateInventoryField(${realIdx}, 'currentStock', this.value)">
+          </div>
+          <div class="action-field">
+            <label>Add Cards (+)</label>
+            <input type="number" class="action-input" placeholder="+ qty"
+              min="0" value="${item.added || ''}"
+              oninput="updateInventoryField(${realIdx}, 'added', this.value)">
+          </div>
+          <div class="action-field">
+            <label>Pull All / Cards (−)</label>
+            <input type="number" class="action-input ${item.pulled > 0 && item.pulled >= item.previousStock ? 'action-input-pull-warn' : ''}"
+              placeholder="− qty" min="0" value="${item.pulled || ''}"
+              oninput="updateInventoryField(${realIdx}, 'pulled', this.value)">
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  if (visible.length === 0) {
+    container.innerHTML = `<div class="dog-state">${dogEmpty('All inventory has been pulled.')}</div>`;
+  }
+}
+
+function updateInventoryField(idx, field, value) {
+  if (!retailInventoryState[idx]) return;
+  const numVal = parseInt(value) || 0;
+  retailInventoryState[idx][field] = numVal;
+
+  // If they set currentStock directly, update the badge live
+  if (field === 'currentStock') {
+    const badges = document.querySelectorAll('.inventory-card .current-stock');
+    if (badges[idx]) badges[idx].textContent = numVal;
+  }
+}
+
+function setupInventoryPageEvents(partnerId) {
+  // Nothing extra needed — all wired via inline handlers
+}
+
+async function savePartnerInventory() {
+  const btn = document.querySelector('button[onclick="savePartnerInventory()"]');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+
+  try {
+    // For each item, compute final stock:
+    // if "Update Stock" was changed, use that. Otherwise apply add/pull math.
+    const updates = retailInventoryState.map(item => {
+      let finalStock = item.currentStock;
+      if (item.added > 0)  finalStock += item.added;
+      if (item.pulled > 0) finalStock = Math.max(0, finalStock - item.pulled);
+      return {
+        designId:      item.designId,
+        designName:    item.designName,
+        previousStock: item.previousStock,
+        newStock:      finalStock,
+        added:         item.added,
+        pulled:        item.pulled,
+        estimatedSold: Math.max(0, item.previousStock - finalStock),
+        unitPrice:     item.unitPrice,
+        isNew:         item.isNew,
+      };
+    });
+
+    const today = new Date().toLocaleDateString('en-CA');
+    const payload = {
+      action: 'updatePartnerInventory',
+      partnerId: retailCurrentPartnerId,
+      partnerName: retailCurrentPartnerName,
+      visitDate: today,
+      updates,
+    };
+
+    const r      = await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify(payload) });
+    const result = await r.json();
+
+    if (result.success) {
+      showToast('✅ Inventory saved!', 'success');
+      // Reload the partner view to reflect new state
+      setTimeout(() => loadPartnerInventoryView(retailCurrentPartnerId, null), 800);
+    } else {
+      throw new Error(result.error);
+    }
+  } catch (e) {
+    showToast('❌ Save failed: ' + e.message, '');
+    if (btn) { btn.disabled = false; btn.textContent = '💾 Save All Updates'; }
+  }
+}
+
+async function saveActualSale() {
+  const month  = document.getElementById('actual-sale-month')?.value;
+  const amount = parseFloat(document.getElementById('actual-sale-amount')?.value);
+  const status = document.getElementById('actual-sale-status');
+  if (!month || isNaN(amount)) { status.className = 'form-status error'; status.textContent = '❌ Please enter a valid month and amount.'; return; }
+  status.className = 'form-status loading'; status.textContent = 'Saving...';
+  try {
+    const r = await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({
+      action: 'logActualSale', partnerId: retailCurrentPartnerId, partnerName: retailCurrentPartnerName, month, actualSales: amount,
+    })});
+    const result = await r.json();
+    if (result.success) {
+      status.className = 'form-status success'; status.textContent = '✅ Payment logged!';
+      showToast('Payment recorded!', 'success');
+      document.getElementById('actual-sale-amount').value = '';
+    } else throw new Error(result.error);
+  } catch (e) {
+    status.className = 'form-status error'; status.textContent = '❌ ' + e.message;
+  }
+}
+
+function openAddDesignToPartnerModal() {
+  if (!itemsCache || itemsCache.length === 0) { showToast('Loading designs...', ''); return; }
+  const existing = new Set(retailInventoryState.map(i => String(i.designId)));
+  const available = itemsCache.filter(i => !existing.has(String(i.ItemID)) && i.Status !== 'Retired');
+
+  openModal(`
+    <div class="modal-title">✚ Add Design to ${retailCurrentPartnerName}</div>
+    <div class="form-field">
+      <label class="field-label">Select Design *</label>
+      <select class="field-input" id="add-partner-design-select">
+        <option value="" disabled selected>Search or select...</option>
+        ${available.map(i => `<option value="${i.ItemID}" data-price="${i.UnitPrice || 0}">${i.ItemID} — ${i.DisplayName || i.Name}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-grid">
+      <div class="form-field">
+        <label class="field-label">Quantity Brought *</label>
+        <input class="field-input" type="number" id="add-partner-qty" placeholder="e.g. 6" min="1">
+      </div>
+      <div class="form-field">
+        <label class="field-label">Retail Price</label>
+        <input class="field-input" type="number" id="add-partner-price" placeholder="Auto-filled" step="0.01" min="0">
+      </div>
+    </div>
+    <button class="btn btn-primary" style="width:100%;margin-top:0.5rem" onclick="confirmAddDesignToPartner()">✚ Add to Inventory</button>
+    <div id="add-partner-status" class="form-status"></div>`);
+
+  // Auto-fill price when design is selected
+  document.getElementById('add-partner-design-select')?.addEventListener('change', (e) => {
+    const opt = e.target.selectedOptions[0];
+    if (opt) document.getElementById('add-partner-price').value = opt.dataset.price || '';
+  });
+
+  // Init Choices on the select
+  new Choices('#add-partner-design-select', { searchEnabled: true, itemSelectText: '', searchPlaceholderValue: 'Type to search designs...' });
+}
+
+function confirmAddDesignToPartner() {
+  const selectEl = document.querySelector('#add-partner-design-select');
+  const designId = selectEl?.value;
+  const qty      = parseInt(document.getElementById('add-partner-qty')?.value);
+  const price    = parseFloat(document.getElementById('add-partner-price')?.value) || 0;
+  const status   = document.getElementById('add-partner-status');
+
+  if (!designId || isNaN(qty) || qty < 1) {
+    status.className = 'form-status error'; status.textContent = '❌ Please select a design and enter a quantity.';
+    return;
+  }
+
+  const item = (itemsCache || []).find(i => String(i.ItemID) === String(designId));
+  retailInventoryState.push({
+    designId,
+    designName:    item?.DisplayName || item?.Name || `Design #${designId}`,
+    unitPrice:     price || item?.UnitPrice || 0,
+    previousStock: 0,
+    currentStock:  qty,
+    pulled:        0,
+    added:         qty,
+    isNew:         true,
+  });
+
+  closeModal();
+  renderInventoryCards();
+  showToast(`${item?.DisplayName || 'Design'} added to inventory list — don't forget to Save!`, 'success');
+}
+
+function computePartnerRankings(partners, currentHistory) {
+  // Simple placeholder — returns empty unless we have sales data in cache
+  return [];
+}
+
+function generatePartnerReport() {
+  showToast('Report generation coming soon!', '');
 }
 
 // ============================================================
@@ -2177,11 +2652,7 @@ function initReportCharts() {
 // ============================================================
 // INVENTORY AUDITOR
 // ============================================================
-
-let auditPendingValues = {};
-
 async function renderInventoryAuditorPage() {
-  auditPendingValues = {};
   appContainer.innerHTML = `
     <div class="page-header">
       <div><h1 class="page-title">Inventory Audit</h1><p class="page-subtitle">Correct on-hand stock counts after a physical count</p></div>
@@ -2199,14 +2670,10 @@ async function renderInventoryAuditorPage() {
         <button class="view-toggle-btn"         id="audit-size-compact" onclick="setAuditSize('compact',this)">≡</button>
         <button class="view-toggle-btn"         id="audit-size-title"   onclick="setAuditSize('title',this)">☰</button>
       </div>
-      <button class="btn btn-secondary btn-sm" onclick="refreshAuditPage()" title="Refresh inventory">↺ Refresh</button>
       <button class="btn btn-primary btn-sm" onclick="saveAudit()" style="margin-left:auto;">✓ Save Updates</button>
     </div>
     <div id="audit-container">${dogLoading('Loading inventory...')}</div>`;
-  await loadAuditItems();
-}
 
-async function loadAuditItems() {
   try {
     if (!itemsCache) {
       const r = await fetch(`${GOOGLE_SCRIPT_URL}?action=getItems`);
@@ -2215,7 +2682,6 @@ async function loadAuditItems() {
       itemsCache = d.items.filter(i => i.ItemID);
     }
     document.getElementById('audit-search')?.addEventListener('input', (e) => {
-      saveAuditInputState();
       const q        = e.target.value.toLowerCase();
       const filtered = (itemsCache || []).filter(i => (i.DisplayName || i.Name || '').toLowerCase().includes(q) || String(i.ItemID).includes(q));
       renderAuditCards(filtered);
@@ -2226,39 +2692,9 @@ async function loadAuditItems() {
   }
 }
 
-async function refreshAuditPage() {
-  saveAuditInputState();
-  const hadPending = Object.keys(auditPendingValues).some(id => auditPendingValues[id].stock !== '');
-  if (hadPending) {
-    const ok = confirm('You have unsaved counts. Refreshing will clear them. Continue?');
-    if (!ok) return;
-  }
-  auditPendingValues = {};
-  itemsCache = null;
-  const container = document.getElementById('audit-container');
-  if (container) container.innerHTML = dogLoading('Refreshing inventory...');
-  const searchEl = document.getElementById('audit-search');
-  if (searchEl) searchEl.value = '';
-  await loadAuditItems();
-}
-
-function saveAuditInputState() {
-  document.querySelectorAll('.audit-new-input').forEach(input => {
-    const id = input.dataset.itemId;
-    if (!auditPendingValues[id]) auditPendingValues[id] = {};
-    auditPendingValues[id].stock = input.value;
-  });
-  document.querySelectorAll('.retire-checkbox').forEach(cb => {
-    const id = cb.dataset.itemId;
-    if (!auditPendingValues[id]) auditPendingValues[id] = {};
-    auditPendingValues[id].retired = cb.checked;
-  });
-}
-
 let auditSizeMode = 'comfy';
 
 function setAuditSize(mode, btn) {
-  saveAuditInputState();
   auditSizeMode = mode;
   document.querySelectorAll('#audit-size-comfy,#audit-size-compact,#audit-size-title').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
@@ -2269,17 +2705,13 @@ function renderAuditCards(items) {
   const container = document.getElementById('audit-container');
   if (!container || !items) return;
   container.innerHTML = `
-    ${items.map(item => {
-      const pending   = auditPendingValues[String(item.ItemID)] || {};
-      const stockVal  = pending.stock !== undefined ? pending.stock : '';
-      const isRetired = pending.retired !== undefined ? pending.retired : (item.Status === 'Retired');
-      return `
+    ${items.map(item => `
       <div class="audit-card audit-card-${auditSizeMode}">
         <div class="audit-card-info">
-          <div class="audit-card-name">${item.DisplayName || item.Name || item.ItemID}</div>
+          <div class="audit-card-name">${item.DisplayName || item.Name}</div>
           <div class="audit-card-id">#${item.ItemID} · ${item.ProductType || 'Card'}</div>
           <label class="retire-toggle-wrap" title="Mark as Retired">
-            <input type="checkbox" class="retire-checkbox" data-item-id="${item.ItemID}" ${isRetired ? 'checked' : ''}>
+            <input type="checkbox" class="retire-checkbox" data-item-id="${item.ItemID}" ${item.Status === 'Retired' ? 'checked' : ''}>
             <span class="retire-toggle-label">Retire</span>
           </label>
         </div>
@@ -2288,36 +2720,33 @@ function renderAuditCards(items) {
           <div class="audit-card-stock-label">On File</div>
         </div>
         <div class="audit-input-group">
-          <input type="number" class="audit-new-input" placeholder="New #" min="0" data-item-id="${item.ItemID}" value="${stockVal}">
+          <input type="number" class="audit-new-input" placeholder="New #" min="0" data-item-id="${item.ItemID}">
           <div class="audit-new-label">Actual Count</div>
         </div>
-      </div>`;
-    }).join('')}
+      </div>`).join('')}
     <button class="btn btn-primary btn-lg" style="width:100%;margin-top:1rem" onclick="saveAudit()">✓ Save All Updates</button>`;
 }
 
 async function saveAudit() {
-  saveAuditInputState();
-  const updates = [];
-  const retires = [];
+  const inputs     = document.querySelectorAll('.audit-new-input');
+  const retireBoxes = document.querySelectorAll('.retire-checkbox');
+  const updates    = [];
+  const retires    = [];
 
-  Object.entries(auditPendingValues).forEach(([itemId, vals]) => {
-    if (vals.stock !== '' && vals.stock !== undefined) {
-      updates.push({ itemId, newStock: parseInt(vals.stock) });
-    }
+  inputs.forEach(input => {
+    if (input.value !== '') updates.push({ itemId: input.dataset.itemId, newStock: parseInt(input.value) });
   });
-
-  document.querySelectorAll('.retire-checkbox').forEach(cb => {
+  retireBoxes.forEach(cb => {
     const item          = (itemsCache || []).find(i => String(i.ItemID) === String(cb.dataset.itemId));
     const currentStatus = item?.Status || 'Open';
-    if (cb.checked && currentStatus !== 'Retired')  retires.push(cb.dataset.itemId);
+    if (cb.checked && currentStatus !== 'Retired')                    retires.push(cb.dataset.itemId);
     if (!cb.checked && currentStatus === 'Retired') retires.push({ itemId: cb.dataset.itemId, restore: true });
   });
 
   if (updates.length === 0 && retires.length === 0) { showToast('No changes entered', ''); return; }
   showToast('Saving...', '');
 
-  const stockPromises  = updates.map(u => fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action: 'updateAuditStock', itemId: u.itemId, newStock: u.newStock }) }));
+  const stockPromises  = updates.map(u => fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action: 'updateItem', itemData: { itemId: u.itemId, newStock: u.newStock } }) }));
   const retirePromises = retires.map(r => {
     const itemId = typeof r === 'object' ? r.itemId : r;
     const status = typeof r === 'object' && r.restore ? 'Open' : 'Retired';
@@ -2326,14 +2755,7 @@ async function saveAudit() {
 
   try {
     await Promise.all([...stockPromises, ...retirePromises]);
-    updates.forEach(u => {
-      const cached = (itemsCache || []).find(i => String(i.ItemID) === String(u.itemId));
-      if (cached) cached.StartingAtHome = u.newStock;
-    });
-    auditPendingValues = {};
-    const q        = document.getElementById('audit-search')?.value?.toLowerCase() || '';
-    const filtered = q ? (itemsCache || []).filter(i => (i.DisplayName || i.Name || '').toLowerCase().includes(q) || String(i.ItemID).includes(q)) : (itemsCache || []);
-    renderAuditCards(filtered);
+    itemsCache = null;
     showToast(`✅ ${updates.length + retires.length} update(s) saved!`, 'success');
   } catch (e) {
     showToast('❌ Some updates failed — try again', '');

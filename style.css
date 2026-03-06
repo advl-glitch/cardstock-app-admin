@@ -663,14 +663,52 @@ body {
 .partner-name { font-family: var(--font-display); font-size: 1.375rem; color: var(--brown); }
 .partner-last-visit { font-size: 0.875rem; color: var(--brown-light); margin-top: 0.25rem; }
 
+/* Mini stats tile */
+.rss-mini-stats-tile { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0; background: var(--white); border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; margin-bottom: 1.25rem; box-shadow: var(--shadow-sm); }
+.rss-mini-stat { padding: 0.85rem 1rem; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.rss-mini-stat:last-child { border-right: none; }
+.rss-mini-stat-label { font-size: 0.68rem; font-weight: 600; color: var(--brown-light); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.3rem; }
+.rss-mini-stat-value { font-family: var(--font-display); font-size: 1.05rem; color: var(--brown); }
+
+/* Rank badges */
+.rank-badge { display: inline-flex; align-items: center; padding: 0.2rem 0.5rem; border-radius: 20px; font-size: 0.8rem; font-weight: 600; }
+.rank-gold   { background: #FFF7D6; color: #A0760A; }
+.rank-silver { background: #F0F0F0; color: #666; }
+.rank-bronze { background: #FFF0E8; color: #9A5020; }
+.rank-plain  { background: var(--cream-dark); color: var(--brown-mid); }
+
+/* Inventory cards */
 .inventory-card { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.25rem; margin-bottom: 0.75rem; box-shadow: var(--shadow-sm); }
-.inventory-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+.inventory-card-new { border-color: var(--teal); border-left: 4px solid var(--teal); }
+.inventory-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; }
 .inventory-card .design-name { font-family: var(--font-display); font-size: 1rem; color: var(--brown); }
-.stock-badge { background: var(--teal-light); color: var(--teal-dark); padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.8rem; font-weight: 600; }
-.inventory-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; }
+.stock-badge { background: var(--teal-light); color: var(--teal-dark); padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.8rem; font-weight: 600; white-space: nowrap; }
+.inventory-est-row { display: flex; gap: 1.25rem; flex-wrap: wrap; margin-bottom: 0.85rem; padding-bottom: 0.6rem; border-bottom: 1px solid var(--border); }
+.inventory-est-label { font-size: 0.75rem; color: var(--brown-light); }
+.inventory-est-label strong { color: var(--brown); }
+.inventory-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; margin-top: 0.75rem; }
 .action-field label { display: block; font-size: 0.7rem; font-weight: 600; color: var(--brown-light); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.3rem; }
 .action-input { width: 100%; padding: 0.5rem 0.6rem; border: 1.5px solid var(--border); border-radius: var(--radius-sm); font-family: var(--font-body); font-size: 0.875rem; color: var(--brown); background: var(--cream); transition: var(--transition); text-align: center; }
 .action-input:focus { outline: none; border-color: var(--teal); background: var(--white); }
+.action-input-pull-warn { border-color: var(--coral); background: var(--coral-light); }
+
+/* Combo dropdown */
+.combo-dropdown-wrap { position: relative; }
+.combo-dropdown-display { display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0.9rem; border: 1.5px solid var(--border); border-radius: var(--radius-sm); background: var(--white); cursor: pointer; font-size: 0.9rem; color: var(--brown); transition: var(--transition); user-select: none; }
+.combo-dropdown-display:hover { border-color: var(--teal); }
+.combo-placeholder { color: #aaa; }
+.combo-chevron { font-size: 0.7rem; color: var(--brown-light); }
+.combo-dropdown-panel { position: absolute; top: calc(100% + 4px); left: 0; right: 0; background: var(--white); border: 1.5px solid var(--border); border-radius: var(--radius-sm); box-shadow: var(--shadow-md); z-index: 999; max-height: 260px; overflow: hidden; display: flex; flex-direction: column; }
+.combo-search-wrap { padding: 0.5rem; border-bottom: 1px solid var(--border); }
+.combo-search-input { width: 100%; padding: 0.45rem 0.7rem; border: 1.5px solid var(--border); border-radius: var(--radius-sm); font-size: 0.875rem; font-family: var(--font-body); background: var(--cream); color: var(--brown); }
+.combo-search-input:focus { outline: none; border-color: var(--teal); }
+.combo-options { overflow-y: auto; flex: 1; }
+.combo-option { padding: 0.55rem 0.9rem; font-size: 0.875rem; color: var(--brown); cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: background 0.15s; }
+.combo-option:hover { background: var(--teal-light); }
+.combo-option-price { font-size: 0.75rem; color: var(--teal-dark); font-weight: 600; }
+.combo-add-new { padding: 0.5rem 0.9rem; border-top: 1px solid var(--border); background: var(--cream); }
+.combo-add-btn { background: none; border: none; color: var(--teal); font-size: 0.85rem; cursor: pointer; font-family: var(--font-body); padding: 0; }
+.combo-add-btn:hover { text-decoration: underline; }
 
 /* ============================================================
    RETAIL PARTNERS
