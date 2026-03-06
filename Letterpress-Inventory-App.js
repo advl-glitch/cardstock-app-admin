@@ -1434,7 +1434,7 @@ async function renderRecordSalePage() {
     </div>
     <div id="rss-loading-state">${dogLoading('Loading partners...')}</div>
     <div id="rss-main" style="display:none;">
-      <div class="card" style="margin-bottom:1.5rem;">
+      <div class="card rss-partner-select-card" style="margin-bottom:1.5rem;">
         <div class="form-field">
           <label class="field-label">Select a Retail Partner</label>
           <select id="retail-partner-select"></select>
