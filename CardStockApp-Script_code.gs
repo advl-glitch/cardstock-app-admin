@@ -31,9 +31,9 @@ function doGet(e) {
     case 'getNextItemId':        result = getNextItemId(); break;
     case 'getRetailPartners':    result = getRetailPartners(); break;
     case 'getPartnerInventory':  result = getPartnerInventory(e.parameter.partnerId); break;
+    case 'getPartnerSalesHistory': result = getPartnerSalesHistory(e.parameter.partnerId); break;
     case 'getVendingMachines':   result = getVendingMachines(); break;
     case 'getTags':              result = getTags(); break;
-    case 'getItemTags':          result = getItemTags(e.parameter.itemId); break;
     case 'getOrders':            result = getOrders(); break;
     case 'getPublicStock':       result = getPublicStock(); break;
     case 'searchRetailers':      result = searchRetailers(e.parameter.query); break;
@@ -74,6 +74,8 @@ function doPost(e) {
     case 'verifyRetailer':           result = verifyRetailer(payload.locationId, payload.email, payload.phone); break;
     case 'uploadPhoto':              result = uploadPhoto(payload); break;
     case 'updateItemStatus':         result = updateItemStatus(payload); break;
+    case 'updatePartnerInventory':   result = updatePartnerInventory(payload); break;
+    case 'logActualSale':            result = logActualSale(payload); break;
     default:
       result = { success: false, error: 'Invalid action: ' + action };
   }
@@ -100,12 +102,6 @@ function getItems() {
       headers.forEach((header, i) => { item[header] = row[i]; });
       return item;
     }).filter(item => item.ItemID);
-
-    // Attach tag IDs to each item so the frontend can filter by tag
-    const tagMap = getItemTagsMap();
-    items.forEach(item => {
-      item._tagIds = tagMap[String(parseInt(item.ItemID, 10))] || [];
-    });
 
     return { success: true, items };
   } catch (e) {
@@ -335,21 +331,6 @@ function saveItemTags(itemId, tags) {
   }
 }
 
-function getItemTags(itemId) {
-  try {
-    const sheet = SPREADSHEET.getSheetByName('ItemTags');
-    if (!sheet) return { success: true, tagIds: [] };
-    const data = sheet.getDataRange().getValues();
-    data.shift(); // remove header
-    const tagIds = data
-      .filter(row => String(parseInt(row[0], 10)) === String(parseInt(itemId, 10)))
-      .map(row => row[1]);
-    return { success: true, tagIds };
-  } catch (e) {
-    return { success: false, error: e.message, tagIds: [] };
-  }
-}
-
 function getItemTagsMap() {
   try {
     const sheet = SPREADSHEET.getSheetByName('ItemTags');
@@ -358,7 +339,7 @@ function getItemTagsMap() {
     data.shift();
     const map = {};
     data.forEach(row => {
-      const itemId = String(parseInt(row[0], 10));
+      const itemId = String(row[0]);
       if (!map[itemId]) map[itemId] = [];
       map[itemId].push(row[1]);
     });
@@ -619,6 +600,106 @@ function getPartnerInventory(locationId) {
 
 
 // =============================================================================
+// PARTNER INVENTORY UPDATE (from Retail Stock & Sales page)
+// =============================================================================
+
+function updatePartnerInventory(payload) {
+  try {
+    const { partnerId, partnerName, visitDate, updates } = payload;
+    const inventorySheet = SPREADSHEET.getSheetByName('retailInventory');
+    if (!inventorySheet) return { success: false, error: 'retailInventory sheet not found.' };
+
+    const today = visitDate || new Date().toLocaleDateString('en-CA');
+
+    updates.forEach(u => {
+      // Write a new row for each design with visit date and new shelf count
+      inventorySheet.appendRow([
+        partnerId,
+        partnerName,
+        today,
+        u.designId,
+        u.designName,
+        u.previousStock,  // StartOnShelf
+        u.added || 0,     // Added
+        u.pulled || 0,    // Pulled
+        u.newStock,       // EndOnShelf
+        u.estimatedSold || 0,
+        u.unitPrice || 0,
+        u.isNew ? 'New' : 'Update',
+      ]);
+    });
+
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+function getPartnerSalesHistory(partnerId) {
+  try {
+    const sheet = SPREADSHEET.getSheetByName('RetailSales');
+    if (!sheet) return { success: true, history: [] }; // sheet may not exist yet
+
+    const data = sheet.getDataRange().getValues();
+    if (data.length < 2) return { success: true, history: [] };
+
+    const headers = data.shift();
+    const pIdx    = headers.indexOf('PartnerID');
+    const mIdx    = headers.indexOf('Month');
+    const aIdx    = headers.indexOf('ActualSales');
+    const eIdx    = headers.indexOf('EstimatedSales');
+    const cIdx    = headers.indexOf('CardsSold');
+
+    const history = data
+      .filter(row => String(row[pIdx]) === String(partnerId))
+      .map(row => ({
+        month:          row[mIdx],
+        actualSales:    parseFloat(row[aIdx]) || 0,
+        estimatedSales: parseFloat(row[eIdx]) || 0,
+        cardsSold:      parseInt(row[cIdx]) || 0,
+      }))
+      .sort((a, b) => b.month.localeCompare(a.month));
+
+    return { success: true, history };
+  } catch (e) {
+    return { success: true, history: [] };
+  }
+}
+
+function logActualSale(payload) {
+  try {
+    const { partnerId, partnerName, month, actualSales } = payload;
+
+    // Get or create RetailSales sheet
+    let sheet = SPREADSHEET.getSheetByName('RetailSales');
+    if (!sheet) {
+      sheet = SPREADSHEET.insertSheet('RetailSales');
+      sheet.appendRow(['PartnerID', 'PartnerName', 'Month', 'ActualSales', 'EstimatedSales', 'CardsSold', 'LoggedAt']);
+    }
+
+    const data    = sheet.getDataRange().getValues();
+    const headers = data[0];
+    const pIdx    = headers.indexOf('PartnerID');
+    const mIdx    = headers.indexOf('Month');
+
+    // Check if row already exists for this partner+month (update it)
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][pIdx]) === String(partnerId) && String(data[i][mIdx]) === String(month)) {
+        sheet.getRange(i + 1, headers.indexOf('ActualSales') + 1).setValue(actualSales);
+        sheet.getRange(i + 1, headers.indexOf('LoggedAt') + 1).setValue(new Date().toISOString());
+        return { success: true };
+      }
+    }
+
+    // Append new row
+    sheet.appendRow([partnerId, partnerName, month, actualSales, 0, 0, new Date().toISOString()]);
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+// =============================================================================
 // VENDING MACHINES
 // =============================================================================
 
@@ -752,7 +833,7 @@ function getPublicStock() {
           totalStock: parseInt(item.StartingAtHome) || 0,
           pending: pending,
           available: available,
-          tags: tagMap[String(parseInt(item.ItemID, 10))] || [],
+          tags: tagMap[String(item.ItemID)] || [],
           wholesalePrice: getWholesalePrice(item.ProductType),
         };
       })
@@ -1348,8 +1429,7 @@ function uploadPhoto(payload) {
     file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
 
     const fileId = file.getId();
-    // Use thumbnail URL — works cross-origin without CORS blocking
-    const url = 'https://lh3.googleusercontent.com/d/' + fileId;
+    const url = 'https://drive.google.com/uc?export=view&id=' + fileId;
 
     return { success: true, url };
   } catch (e) {
