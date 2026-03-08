@@ -832,9 +832,12 @@ function renderItemsList(items) {
     </div>`;
 }
 
-function openItemDetail(itemId) {
+async function openItemDetail(itemId) {
   const item = (itemsCache || []).find(i => String(i.ItemID) === String(itemId));
   if (!item) return;
+  if (!tagsCache) {
+    try { const r = await fetch(`${GOOGLE_SCRIPT_URL}?action=getTags`); const d = await r.json(); if (d.success) tagsCache = d.tags; } catch (e) {}
+  }
   openDetailPanel(`
     <div class="detail-id">#${item.ItemID}</div>
     <div class="detail-name">${item.DisplayName || item.Name || 'Untitled'}</div>
@@ -848,6 +851,7 @@ function openItemDetail(itemId) {
       <div class="detail-stat"><div class="detail-stat-label">Status</div><div class="detail-stat-value" style="font-size:1rem">${item.Status === 'Retired' ? '🪦 Retired' : item.Status === 'Limited Edition' ? '⭐ Limited' : '✅ Open'}</div></div>
     </div>
     ${item.Notes ? `<div style="margin-bottom:1rem;font-size:0.875rem;color:var(--brown-mid);background:var(--cream);padding:0.75rem;border-radius:var(--radius-sm);">📝 ${item.Notes}</div>` : ''}
+    ${(item._tagIds && item._tagIds.length > 0) ? `<div style="margin-bottom:1rem;"><div style="font-size:0.75rem;font-weight:600;color:var(--brown-light);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.4rem;">Tags</div><div style="display:flex;flex-wrap:wrap;gap:0.35rem;">${item._tagIds.map(id => { const t = (tagsCache || []).find(t => t.TagID === id); return t ? `<span style="display:inline-block;padding:0.2rem 0.6rem;font-size:0.75rem;background:var(--cream);border:1px solid var(--brown-lightest);border-radius:999px;color:var(--brown-mid);">${t.TagName}</span>` : ''; }).join('')}</div></div>` : ''}
     <hr class="detail-divider">
     <div class="detail-actions">
       <button class="btn btn-primary" onclick="openEditItemModal('${item.ItemID}')">✏️ Edit Design</button>
