@@ -28,6 +28,7 @@ function doGet(e) {
 
   switch (action) {
     case 'getItems':             result = getItems(); break;
+    case 'getProductTypes':      result = getProductTypes(); break;
     case 'getNextItemId':        result = getNextItemId(); break;
     case 'getRetailPartners':    result = getRetailPartners(); break;
     case 'getPartnerInventory':  result = getPartnerInventory(e.parameter.partnerId); break;
@@ -134,6 +135,23 @@ function getNextItemId() {
 
     const nextId = String(maxId + 1); // plain integer — JS display layer adds padding
     return { success: true, nextId };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+function getProductTypes() {
+  try {
+    const sheet = SPREADSHEET.getSheetByName('ProductType');
+    if (!sheet) return { success: false, error: 'Sheet "ProductType" not found.' };
+    const data = sheet.getDataRange().getValues();
+    const headers = data.shift();
+    const types = data.map(row => {
+      const obj = {};
+      headers.forEach((h, i) => { obj[h] = row[i]; });
+      return obj;
+    }).filter(t => t.TypeName || t.Name);
+    return { success: true, types };
   } catch (e) {
     return { success: false, error: e.message };
   }

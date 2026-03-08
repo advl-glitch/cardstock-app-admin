@@ -1118,12 +1118,14 @@ async function renderNewItemDesignPage() {
     <div class="form-page-container"><div class="form-section">${dogLoading('Loading...')}</div></div>`;
 
   try {
-    const [idRes, tagsRes] = await Promise.all([
+    const [idRes, tagsRes, typesRes] = await Promise.all([
       fetch(`${GOOGLE_SCRIPT_URL}?action=getNextItemId`).then(r => r.json()),
       fetch(`${GOOGLE_SCRIPT_URL}?action=getTags`).then(r => r.json()),
+      fetch(`${GOOGLE_SCRIPT_URL}?action=getProductTypes`).then(r => r.json()),
     ]);
     if (!idRes.success) throw new Error(idRes.error);
     if (tagsRes.success) tagsCache = tagsRes.tags;
+    const productTypes = typesRes.success ? typesRes.types : [];
     const nextId = idRes.nextId;
     const today  = new Date().toLocaleDateString('en-CA');
     const categories = {};
@@ -1157,11 +1159,14 @@ async function renderNewItemDesignPage() {
             </div>
             <div class="form-field">
               <label class="field-label">Card / Item Type *</label>
-              <input class="field-input" type="text" name="itemType" placeholder="e.g. Folded Card, Postcard" required>
+              <select class="field-input" name="itemType" id="new-item-type" required>
+                <option value="" disabled selected>Select a type...</option>
+                ${productTypes.map(t => `<option value="${t.TypeName || t.Name}" data-price="${t.RetailPrice || t.Price || ''}">${t.TypeName || t.Name}</option>`).join('')}
+              </select>
             </div>
             <div class="form-field">
               <label class="field-label">Retail Price</label>
-              <input class="field-input" type="number" name="unitPrice" placeholder="e.g. 6.00" step="0.01" min="0">
+              <input class="field-input" type="number" name="unitPrice" id="new-item-price" placeholder="e.g. 6.00" step="0.01" min="0" readonly style="background:var(--cream);color:var(--brown-mid);">
             </div>
             <div class="form-field">
               <label class="field-label">First Print Run Quantity *</label>
@@ -1205,6 +1210,22 @@ async function renderNewItemDesignPage() {
       </div>`;
 
     document.getElementById('new-item-form').addEventListener('submit', handleAddNewItem);
+    document.getElementById('new-item-type').addEventListener('change', (e) => {
+      const selected = e.target.selectedOptions[0];
+      const price = selected?.dataset.price;
+      const priceInput = document.getElementById('new-item-price');
+      if (price) {
+        priceInput.value = parseFloat(price).toFixed(2);
+        priceInput.readOnly = true;
+        priceInput.style.background = 'var(--cream)';
+        priceInput.style.color = 'var(--brown-mid)';
+      } else {
+        priceInput.value = '';
+        priceInput.readOnly = false;
+        priceInput.style.background = '';
+        priceInput.style.color = '';
+      }
+    });
   } catch (e) {
     appContainer.innerHTML = `<div class="dog-state">${dogError(e.message)}</div>`;
   }
@@ -1308,6 +1329,7 @@ async function handleAddPrintRun(event) {
     const r      = await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify(payload) });
     const result = await r.json();
     if (result.success) {
+      itemsCache = null;
       status.className  = 'form-status success';
       status.textContent = `✅ Print run logged for design #${payload.itemId}`;
       showToast('Print run saved!', 'success');
