@@ -1303,7 +1303,7 @@ async function renderNewItemDesignPage() {
               <label class="field-label">Card / Item Type *</label>
               <select class="field-input" name="itemType" id="new-item-type" required>
                 <option value="" disabled selected>Select a type...</option>
-                ${productTypes.map(t => `<option value="${t.TypeName || t.Name}" data-price="${t.RetailPrice || t.Price || ''}">${t.TypeName || t.Name}</option>`).join('')}
+                ${productTypes.map(t => `<option value="${t.TypeName || t.Name}" data-price="${t.DefaultRetailPrice || t.RetailPrice || t.Price || ''}">${t.TypeName || t.Name}</option>`).join('')}
               </select>
             </div>
             <div class="form-field">
