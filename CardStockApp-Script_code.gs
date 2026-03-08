@@ -571,7 +571,7 @@ function getPartnerInventory(locationId) {
 
     let mostRecentDate = new Date(0);
     inventoryData.forEach(row => {
-      if (row[invLocationIdIndex] === locationId) {
+      if (String(row[invLocationIdIndex]) === locationId) {
         const visitDate = new Date(row[visitDateIndex]);
         if (visitDate > mostRecentDate) mostRecentDate = visitDate;
       }
@@ -584,7 +584,7 @@ function getPartnerInventory(locationId) {
     const latestInventory = inventoryData
       .filter(row => {
         const rowDate = new Date(row[visitDateIndex]);
-        return row[invLocationIdIndex] === locationId &&
+        return String(row[invLocationIdIndex]) === locationId &&
                rowDate.toDateString() === mostRecentDate.toDateString();
       })
       .map(row => ({
