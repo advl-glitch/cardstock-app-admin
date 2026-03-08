@@ -1304,7 +1304,12 @@ async function renderNewItemDesignPage() {
               <select class="field-input" name="itemType" id="new-item-type" required>
                 <option value="" disabled selected>Select a type...</option>
                 ${productTypes.map(t => `<option value="${t.TypeName || t.Name}" data-price="${t.DefaultRetailPrice || t.RetailPrice || t.Price || ''}">${t.TypeName || t.Name}</option>`).join('')}
+                <option value="__new__">+ Add New Type...</option>
               </select>
+              <div id="new-type-fields" style="display:none;margin-top:0.5rem;">
+                <input class="field-input" type="text" id="new-type-name" placeholder="New type name..." style="margin-bottom:0.4rem;">
+                <input class="field-input" type="number" id="new-type-price" placeholder="Retail price (e.g. 6.00)" step="0.01" min="0">
+              </div>
             </div>
             <div class="form-field">
               <label class="field-label">Retail Price</label>
@@ -1317,7 +1322,7 @@ async function renderNewItemDesignPage() {
           </div>
           <div class="form-section">
             <div class="form-section-title">Tags & Categories</div>
-            ${Object.entries(categories).map(([cat, tags]) => `
+            ${Object.entries(categories).filter(([cat]) => cat !== 'Format').map(([cat, tags]) => `
               <div class="tag-category-group">
                 <div class="tag-category-label">${cat}</div>
                 <div class="tag-chips-edit">
@@ -1328,6 +1333,7 @@ async function renderNewItemDesignPage() {
                     </label>`).join('')}
                 </div>
               </div>`).join('')}
+            ${(categories['Format'] || []).map(tag => `<input type="checkbox" class="new-tag-check" value="${tag.TagID}" data-format-tag="${tag.TagName}" style="display:none">`).join('')}
             <button type="button" class="btn btn-secondary btn-sm" style="margin-top:0.5rem" onclick="openAddTagModal()">+ Add New Tag</button>
           </div>
           <div class="form-section">
@@ -1354,8 +1360,27 @@ async function renderNewItemDesignPage() {
     document.getElementById('new-item-form').addEventListener('submit', handleAddNewItem);
     document.getElementById('new-item-type').addEventListener('change', (e) => {
       const selected = e.target.selectedOptions[0];
-      const price = selected?.dataset.price;
       const priceInput = document.getElementById('new-item-price');
+      const newTypeFields = document.getElementById('new-type-fields');
+
+      // Handle "+ Add New Type..."
+      if (e.target.value === '__new__') {
+        newTypeFields.style.display = '';
+        priceInput.value = '';
+        priceInput.readOnly = false;
+        priceInput.style.background = '';
+        priceInput.style.color = '';
+        document.getElementById('new-type-name').focus();
+        // When new type price is entered, sync to main price field
+        document.getElementById('new-type-price').oninput = function() {
+          priceInput.value = this.value ? parseFloat(this.value).toFixed(2) : '';
+        };
+        return;
+      }
+      newTypeFields.style.display = 'none';
+
+      // Auto-fill price
+      const price = selected?.dataset.price;
       if (price) {
         priceInput.value = parseFloat(price).toFixed(2);
         priceInput.readOnly = true;
@@ -1367,6 +1392,12 @@ async function renderNewItemDesignPage() {
         priceInput.style.background = '';
         priceInput.style.color = '';
       }
+
+      // Auto-check matching Format tag, uncheck others
+      const typeName = e.target.value;
+      document.querySelectorAll('[data-format-tag]').forEach(cb => {
+        cb.checked = cb.dataset.formatTag === typeName;
+      });
     });
   } catch (e) {
     appContainer.innerHTML = `<div class="dog-state">${dogError(e.message)}</div>`;
@@ -1383,6 +1414,18 @@ async function handleAddNewItem(event) {
   status.textContent = 'Saving design...';
   const formData     = new FormData(form);
   const rawData      = Object.fromEntries(formData.entries());
+  // Handle "Add New Type" — override itemType and price
+  if (rawData.itemType === '__new__') {
+    const newName = document.getElementById('new-type-name')?.value.trim();
+    const newPrice = document.getElementById('new-type-price')?.value;
+    if (!newName) { status.className = 'form-status error'; status.textContent = '❌ Please enter a name for the new type.'; if (btnWrap) btnWrap.style.display = ''; return; }
+    rawData.itemType = newName;
+    rawData.unitPrice = newPrice ? parseFloat(newPrice).toFixed(2) : rawData.unitPrice;
+    // Save the new product type to the sheet (fire-and-forget)
+    fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action: 'addProductType', typeData: { typeName: newName, retailPrice: rawData.unitPrice } }) });
+  }
+  // Auto-format price to 2 decimals
+  if (rawData.unitPrice) rawData.unitPrice = parseFloat(rawData.unitPrice).toFixed(2);
   const selectedTags = [...document.querySelectorAll('.new-tag-check:checked')].map(c => c.value);
   const payload      = {
     action: 'addItem',
