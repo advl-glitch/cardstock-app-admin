@@ -68,6 +68,7 @@ function doPost(e) {
     case 'addRetailPartner':         result = addRetailPartner(payload.partnerData); break;
     case 'updateRetailPartner':      result = updateRetailPartner(payload.partnerData); break;
     case 'addTag':                   result = addTag(payload.tagData); break;
+    case 'deleteTag':                result = deleteTag(payload.tagId); break;
     case 'submitOrder':              result = submitOrder(payload.orderData); break;
     case 'fulfillOrder':             result = fulfillOrder(payload.orderId, payload.adjustments, payload.notifData); break;
     case 'sendRestockNotification':  result = sendRestockNotification(payload.notifData); break;
@@ -354,6 +355,35 @@ function addTag(tagData) {
 
     sheet.appendRow([tagId, tagData.tagName, tagData.category || 'Theme', true]);
     return { success: true, tagId, message: 'Tag added.' };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+function deleteTag(tagId) {
+  try {
+    // Remove from Tags sheet
+    const tagsSheet = SPREADSHEET.getSheetByName('Tags');
+    if (tagsSheet) {
+      const data = tagsSheet.getDataRange().getValues();
+      for (let i = data.length - 1; i >= 1; i--) {
+        if (String(data[i][0]) === String(tagId)) {
+          tagsSheet.deleteRow(i + 1);
+          break;
+        }
+      }
+    }
+    // Remove all ItemTags references
+    const itemTagsSheet = SPREADSHEET.getSheetByName('ItemTags');
+    if (itemTagsSheet) {
+      const data = itemTagsSheet.getDataRange().getValues();
+      for (let i = data.length - 1; i >= 1; i--) {
+        if (String(data[i][1]) === String(tagId)) {
+          itemTagsSheet.deleteRow(i + 1);
+        }
+      }
+    }
+    return { success: true, message: 'Tag deleted.' };
   } catch (e) {
     return { success: false, error: e.message };
   }

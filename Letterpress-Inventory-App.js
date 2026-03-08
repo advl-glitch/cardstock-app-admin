@@ -1107,6 +1107,52 @@ function openAddTagModal() {
   });
 }
 
+async function openManageTagsModal() {
+  openModal(`<div class="modal-title">Manage Tags</div><div id="manage-tags-body">${dogLoading('Loading tags...')}</div>`);
+  if (!tagsCache) {
+    try { const r = await fetch(`${GOOGLE_SCRIPT_URL}?action=getTags`); const d = await r.json(); if (d.success) tagsCache = d.tags; } catch (e) {}
+  }
+  renderManageTagsList();
+}
+
+function renderManageTagsList() {
+  const body = document.getElementById('manage-tags-body');
+  if (!body || !tagsCache) return;
+  const categories = {};
+  (tagsCache || []).forEach(tag => {
+    if (!categories[tag.Category]) categories[tag.Category] = [];
+    categories[tag.Category].push(tag);
+  });
+  body.innerHTML = Object.entries(categories).map(([cat, tags]) => `
+    <div style="margin-bottom:1rem;">
+      <div style="font-size:0.75rem;font-weight:600;color:var(--brown-light);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.4rem;">${cat}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:0.35rem;">
+        ${tags.map(tag => `
+          <span style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.25rem 0.6rem;font-size:0.8rem;background:var(--cream);border:1px solid var(--brown-lightest);border-radius:999px;color:var(--brown-mid);">
+            ${tag.TagName}
+            <button onclick="deleteTagFromSystem('${tag.TagID}')" style="background:none;border:none;color:var(--coral);cursor:pointer;font-size:0.9rem;padding:0;line-height:1;" title="Delete tag">✕</button>
+          </span>`).join('')}
+      </div>
+    </div>`).join('') + `
+    <button class="btn btn-secondary btn-sm" style="margin-top:0.5rem;" onclick="openAddTagModal()">+ Add New Tag</button>`;
+}
+
+async function deleteTagFromSystem(tagId) {
+  const tag = (tagsCache || []).find(t => t.TagID === tagId);
+  if (!confirm('Delete tag "' + (tag?.TagName || tagId) + '"? This removes it from all designs.')) return;
+  try {
+    const r = await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action: 'deleteTag', tagId }) });
+    const result = await r.json();
+    if (result.success) {
+      tagsCache = tagsCache.filter(t => t.TagID !== tagId);
+      renderManageTagsList();
+      showToast('Tag deleted', 'success');
+    } else throw new Error(result.error);
+  } catch (e) {
+    showToast('Error: ' + e.message, '');
+  }
+}
+
 // ============================================================
 // ADD NEW DESIGN
 // ============================================================
@@ -2597,7 +2643,7 @@ function renderSettingsPage() {
       <div class="settings-section-header">🏷️ Tag Management</div>
       <div class="settings-row">
         <div class="settings-row-info"><div class="settings-row-label">Manage Tags & Categories</div><div class="settings-row-desc">Add, edit, or organize card tags</div></div>
-        <button class="btn btn-secondary btn-sm" onclick="openAddTagModal()">Manage Tags</button>
+        <button class="btn btn-secondary btn-sm" onclick="openManageTagsModal()">Manage Tags</button>
       </div>
     </div>
     <div class="settings-section">
