@@ -205,7 +205,7 @@ function addItem(itemData, printRunData) {
       'Photo': itemData.photo || '',
       'ProductType': itemData.itemType,
       'UnitPrice': itemData.unitPrice || '',
-      'Status': 'Open',
+      'Status': itemData.status || 'Open',
       'Notes': itemData.notes || '',
       'Location': 'HOME',
       'CreatedAt': now,

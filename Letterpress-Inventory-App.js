@@ -1316,6 +1316,13 @@ async function renderNewItemDesignPage() {
               <input class="field-input" type="number" name="unitPrice" id="new-item-price" placeholder="e.g. 6.00" step="0.01" min="0" readonly style="background:var(--cream);color:var(--brown-mid);">
             </div>
             <div class="form-field">
+              <label class="field-label">Status</label>
+              <select class="field-input" name="status">
+                <option value="Open" selected>Open</option>
+                <option value="Limited">Limited</option>
+              </select>
+            </div>
+            <div class="form-field">
               <label class="field-label">First Print Run Quantity *</label>
               <input class="field-input" type="number" name="firstRun" placeholder="e.g. 50" min="0" required>
             </div>
@@ -1439,7 +1446,7 @@ async function handleAddNewItem(event) {
   }
   const payload      = {
     action: 'addItem',
-    itemData: { itemId: rawData.itemId, designName: rawData.designName, itemType: rawData.itemType, unitPrice: rawData.unitPrice, photo: fixPhotoUrl(rawData.photo), notes: rawData.notes, dateAdded: rawData.dateAdded, status: 'Open', tags: selectedTags },
+    itemData: { itemId: rawData.itemId, designName: rawData.designName, itemType: rawData.itemType, unitPrice: rawData.unitPrice, photo: fixPhotoUrl(rawData.photo), notes: rawData.notes, dateAdded: rawData.dateAdded, status: rawData.status || 'Open', tags: selectedTags },
     printRunData: { itemId: rawData.itemId, quantity: rawData.firstRun, date: rawData.dateAdded }
   };
   try {
