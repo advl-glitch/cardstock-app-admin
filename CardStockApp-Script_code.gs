@@ -165,26 +165,34 @@ function addItem(itemData, printRunData) {
     const itemsSheet = SPREADSHEET.getSheetByName('Items');
     if (!itemsSheet) return { success: false, error: 'Sheet "Items" not found.' };
 
+    const headers = itemsSheet.getRange(1, 1, 1, itemsSheet.getLastColumn()).getValues()[0];
     const now = new Date().toISOString();
     const itemIdDisplay = String(itemData.itemId).padStart(3, '0');
     const displayName = itemIdDisplay + ' — ' + itemData.designName;
 
-    itemsSheet.appendRow([
-      itemData.itemId,
-      itemData.designName,
-      displayName,
-      itemData.photo || '',
-      itemData.itemType,
-      itemData.unitPrice || '',
-      true,
-      itemData.notes || '',
-      'HOME',
-      now,
-      0,   // StartingAtHome
-      0,   // StartingApproxTotal
-      0,   // StartingOutConsignmentEst
-      printRunData ? parseInt(printRunData.quantity) || 0 : 0
-    ]);
+    // Build row array based on headers so column order doesn't matter
+    const newRow = new Array(headers.length).fill('');
+    const fieldMap = {
+      'ItemID': itemData.itemId,
+      'Name': itemData.designName,
+      'DisplayName': displayName,
+      'Photo': itemData.photo || '',
+      'ProductType': itemData.itemType,
+      'UnitPrice': itemData.unitPrice || '',
+      'Active': true,
+      'Notes': itemData.notes || '',
+      'Location': 'HOME',
+      'CreatedAt': now,
+      'StartingAtHome': printRunData ? parseInt(printRunData.quantity) || 0 : 0,
+      'StartingApproxTotal': 0,
+      'StartingOutConsignmentEst': 0,
+      'Status': 'Open',
+    };
+    Object.entries(fieldMap).forEach(([col, val]) => {
+      const idx = headers.indexOf(col);
+      if (idx !== -1) newRow[idx] = val;
+    });
+    itemsSheet.appendRow(newRow);
 
     if (itemData.tags && itemData.tags.length > 0) {
       saveItemTags(itemData.itemId, itemData.tags);
@@ -846,26 +854,33 @@ function addVendingMachine(machineData) {
     const nextNum = nums.length > 0 ? Math.max(...nums) + 1 : 1;
     const machineId = 'VM' + String(nextNum).padStart(3,'0');
 
-    sheet.appendRow([
-      machineId,
-      machineData.machineName,
-      machineData.machineType || 'Standard',
-      machineData.status || 'In Storage',
-      machineData.venueName || '',
-      machineData.venueType || '',
-      machineData.venueAddress || '',
-      machineData.venueCity || '',
-      machineData.contactName || '',
-      machineData.contactPhone || '',
-      machineData.contactEmail || '',
-      machineData.installDate || '',
-      machineData.removalDate || '',
-      machineData.residencyNotes || '',
-      machineData.notifyEmail || '',
-      machineData.notifyPhone || '',
-      machineData.notifyActive !== undefined ? machineData.notifyActive : true,
-      ''
-    ]);
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const newRow = new Array(headers.length).fill('');
+    const fieldMap = {
+      'MachineID': machineId,
+      'MachineName': machineData.machineName,
+      'MachineType': machineData.machineType || 'Standard',
+      'Status': machineData.status || 'In Storage',
+      'VenueName': machineData.venueName || '',
+      'VenueType': machineData.venueType || '',
+      'VenueAddress': machineData.venueAddress || '',
+      'VenueCity': machineData.venueCity || '',
+      'ContactName': machineData.contactName || '',
+      'ContactPhone': machineData.contactPhone || '',
+      'ContactEmail': machineData.contactEmail || '',
+      'InstallDate': machineData.installDate || '',
+      'RemovalDate': machineData.removalDate || '',
+      'ResidencyNotes': machineData.residencyNotes || '',
+      'NotifyEmail': machineData.notifyEmail || '',
+      'NotifyPhone': machineData.notifyPhone || '',
+      'NotifyActive': machineData.notifyActive !== undefined ? machineData.notifyActive : true,
+      'Photo': machineData.photo || '',
+    };
+    Object.entries(fieldMap).forEach(([col, val]) => {
+      const idx = headers.indexOf(col);
+      if (idx !== -1) newRow[idx] = val;
+    });
+    sheet.appendRow(newRow);
 
     return { success: true, machineId, message: 'Machine "' + machineData.machineName + '" added.' };
   } catch (e) {
@@ -902,6 +917,7 @@ function updateVendingMachine(machineData) {
           'NotifyEmail':    machineData.notifyEmail,
           'NotifyPhone':    machineData.notifyPhone,
           'NotifyActive':   machineData.notifyActive,
+          'Photo':          machineData.photo,
           'RemovedDate':    machineData.removedDate,
         };
         Object.entries(fieldMap).forEach(([field, val]) => {

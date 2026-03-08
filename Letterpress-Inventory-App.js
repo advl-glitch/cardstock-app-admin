@@ -1045,6 +1045,48 @@ async function handleAddPhotoUpload(input) {
   reader.readAsDataURL(file);
 }
 
+async function handleMachinePhotoUpload(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const statusEl = document.getElementById('machine-photo-status');
+  const urlInput = document.getElementById('machine-photo-url');
+  if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = 'Processing...'; statusEl.style.color = 'var(--teal)'; }
+  const canvas = document.createElement('canvas');
+  const img = new Image();
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    img.onload = async () => {
+      const maxSize = 800;
+      let w = img.width, h = img.height;
+      if (w > h && w > maxSize) { h = Math.round(h * maxSize / w); w = maxSize; }
+      else if (h > maxSize) { w = Math.round(w * maxSize / h); h = maxSize; }
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      const base64 = canvas.toDataURL('image/jpeg', 0.75).split(',')[1];
+      if (statusEl) statusEl.textContent = 'Uploading to Drive...';
+      try {
+        const r = await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action: 'uploadPhoto', base64, filename: file.name }) });
+        const result = await r.json();
+        if (result.success && result.url) {
+          if (urlInput) urlInput.value = result.url;
+          let previewWrap = document.querySelector('.photo-preview-wrap');
+          if (!previewWrap) {
+            previewWrap = document.createElement('div');
+            previewWrap.className = 'photo-preview-wrap';
+            document.querySelector('.photo-upload-area')?.before(previewWrap);
+          }
+          previewWrap.innerHTML = `<img class="photo-preview-thumb" src="${result.url}" alt="Uploaded photo">`;
+          if (statusEl) { statusEl.textContent = '✅ Photo uploaded!'; statusEl.style.color = 'var(--green)'; }
+        } else throw new Error(result.error || 'Upload failed');
+      } catch (err) {
+        if (statusEl) { statusEl.textContent = '⚠️ Upload failed: ' + err.message; statusEl.style.color = 'var(--amber)'; }
+      }
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
 async function loadTagsForEdit(containerId, selectedTagIds) {
   const container = document.getElementById(containerId);
   if (!container) return;
@@ -2070,6 +2112,16 @@ function openAddMachineModal() {
         <div class="form-field"><label class="field-label">Notify Phone (SMS)</label><input class="field-input" type="tel" name="notifyPhone" oninput="formatPhoneField(this)"></div>
       </div>
       <div class="form-field"><label class="field-label">Residency Notes</label><input class="field-input" type="text" name="residencyNotes"></div>
+      <div class="form-field">
+        <label class="field-label">Photo</label>
+        <div class="photo-upload-area" onclick="document.getElementById('machine-photo-file').click()">
+          <input type="file" id="machine-photo-file" accept="image/*" capture="environment" style="display:none" onchange="handleMachinePhotoUpload(this)">
+          <div class="photo-upload-icon">📷</div>
+          <div class="photo-upload-text">Tap to take photo or choose from device</div>
+        </div>
+        <input class="field-input" type="text" name="photo" id="machine-photo-url" placeholder="Or paste a URL..." style="margin-top:0.5rem;">
+        <div id="machine-photo-status" style="font-size:0.75rem;margin-top:0.3rem;display:none;"></div>
+      </div>
       <div id="add-machine-btn-wrap"><button type="submit" class="btn btn-primary" style="width:100%;margin-top:0.5rem">Save Machine</button></div>
       <div id="machine-form-status" class="form-status"></div>
     </form>`);
@@ -2122,6 +2174,17 @@ function openEditMachineModal(machineId) {
         <div class="form-field"><label class="field-label">Notify Phone</label><input class="field-input" type="tel" name="notifyPhone" value="${m.NotifyPhone || ''}" oninput="formatPhoneField(this)"></div>
       </div>
       <div class="form-field"><label class="field-label">Residency Notes</label><input class="field-input" type="text" name="residencyNotes" value="${m.ResidencyNotes || ''}"></div>
+      <div class="form-field">
+        <label class="field-label">Photo</label>
+        ${m.Photo ? `<div class="photo-preview-wrap"><img class="photo-preview-thumb" src="${m.Photo}" alt="Machine photo"></div>` : ''}
+        <div class="photo-upload-area" onclick="document.getElementById('machine-photo-file').click()">
+          <input type="file" id="machine-photo-file" accept="image/*" capture="environment" style="display:none" onchange="handleMachinePhotoUpload(this)">
+          <div class="photo-upload-icon">📷</div>
+          <div class="photo-upload-text">Tap to take photo or choose from device</div>
+        </div>
+        <input class="field-input" type="text" name="photo" id="machine-photo-url" value="${m.Photo || ''}" placeholder="Or paste a URL..." style="margin-top:0.5rem;">
+        <div id="machine-photo-status" style="font-size:0.75rem;margin-top:0.3rem;display:none;"></div>
+      </div>
       <div id="edit-machine-btn-wrap"><button type="submit" class="btn btn-primary" style="width:100%;margin-top:0.5rem">Save Changes</button></div>
       <div id="edit-machine-status" class="form-status"></div>
     </form>`);
