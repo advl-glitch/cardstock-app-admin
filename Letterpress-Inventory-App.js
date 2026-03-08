@@ -82,6 +82,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupModal();
   const lastPage = sessionStorage.getItem('pba_current_page') || 'home';
   loadPage(lastPage);
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
   document.querySelector(`[data-page="${lastPage}"]`)?.classList.add('active');
 });
 
