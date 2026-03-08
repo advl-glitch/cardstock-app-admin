@@ -40,6 +40,7 @@ function doGet(e) {
     case 'getPublicStock':       result = getPublicStock(); break;
     case 'searchRetailers':      result = searchRetailers(e.parameter.query); break;
     case 'getDashboardStats':    result = getDashboardStats(); break;
+    case 'debugHeaders':         result = debugHeaders(); break;
     default:
       result = { success: false, error: 'Invalid action: ' + action };
   }
@@ -1584,7 +1585,7 @@ function uploadPhoto(payload) {
     file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
 
     const fileId = file.getId();
-    const url = 'https://drive.google.com/uc?export=view&id=' + fileId;
+    const url = 'https://lh3.googleusercontent.com/d/' + fileId;
 
     return { success: true, url };
   } catch (e) {
@@ -1619,6 +1620,28 @@ function updateItemStatus(payload) {
       }
     }
     return { success: false, error: 'Item not found' };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+function debugHeaders() {
+  try {
+    const sheet = SPREADSHEET.getSheetByName('Items');
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    // Also grab row for item 29
+    const data = sheet.getDataRange().getValues();
+    let item29 = null;
+    const idIdx = headers.indexOf('ItemID');
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][idIdx]) === '29') {
+        const row = {};
+        headers.forEach((h, j) => { row[h] = data[i][j]; });
+        item29 = row;
+        break;
+      }
+    }
+    return { success: true, headers, photoIndex: headers.indexOf('Photo'), item29 };
   } catch (e) {
     return { success: false, error: e.message };
   }
