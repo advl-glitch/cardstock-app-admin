@@ -699,6 +699,11 @@ function applyFilters() {
   closeFilterPanel();
   updateActiveFiltersBar();
   currentItems = itemsCache || [];
+  if (activeTagFilters.size > 0) {
+    currentItems = currentItems.filter(item =>
+      (item._tagIds || []).some(id => activeTagFilters.has(id))
+    );
+  }
   const count = document.getElementById('filter-count');
   if (count) {
     if (activeTagFilters.size > 0) {
@@ -909,7 +914,7 @@ function openEditItemModal(itemId) {
         status.className  = 'form-status success';
         status.textContent = '✅ Design updated!';
         showToast('Design updated!', 'success');
-        setTimeout(() => { closeModal(); closeDetailPanel(); }, 1200);
+        setTimeout(async () => { closeModal(); closeDetailPanel(); await fetchAndDisplayItems(); }, 1200);
       } else throw new Error(result.error);
     } catch (err) {
       status.className  = 'form-status error';
