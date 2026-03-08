@@ -1265,6 +1265,8 @@ async function renderNewItemDesignPage() {
       fetch(`${GOOGLE_SCRIPT_URL}?action=getTags`).then(r => r.json()),
       fetch(`${GOOGLE_SCRIPT_URL}?action=getProductTypes`).then(r => r.json()),
     ]);
+    // Bail out if user navigated away while fetching
+    if (sessionStorage.getItem('pba_current_page') !== 'new-item-design') return;
     if (!idRes.success) throw new Error(idRes.error);
     if (tagsRes.success) tagsCache = tagsRes.tags;
     const productTypes = typesRes.success ? typesRes.types : [];
