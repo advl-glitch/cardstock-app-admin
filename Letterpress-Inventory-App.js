@@ -1438,7 +1438,11 @@ function renderInventoryCards() {
 
   const visible = retailInventoryState.filter(item => {
     if (item.isNew) return true;
-    return !(item.pulled > 0 && item.pulled >= item.previousStock && !item.added);
+    // Hide if all cards pulled out
+    if (item.pulled > 0 && item.pulled >= item.previousStock && !item.added) return false;
+    // Hide if stock set to 0 with no adds
+    if (item.currentStock === 0 && !item.added) return false;
+    return true;
   });
 
   container.innerHTML = visible.map((item) => {
@@ -1491,6 +1495,10 @@ function updateInventoryField(idx, field, value) {
   if (field === 'currentStock') {
     const badges = document.querySelectorAll('.inventory-card .current-stock');
     if (badges[idx]) badges[idx].textContent = parseInt(value) || 0;
+  }
+  // Re-render to hide items with 0 stock or fully pulled
+  if (field === 'pulled' || field === 'currentStock') {
+    renderInventoryCards();
   }
 }
 
