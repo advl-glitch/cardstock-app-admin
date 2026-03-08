@@ -653,7 +653,8 @@ body {
 }
 
 .quick-action-btn:hover { border-color: var(--teal); background: var(--teal-light); transform: translateY(-2px); }
-.quick-action-icon { font-size: 1.5rem; margin-bottom: 0.5rem; display: block; }
+.quick-action-icon { font-size: 1.5rem; margin-bottom: 0.5rem; display: block; line-height: 1; }
+.quick-action-icon svg { display: block; margin: 0 auto; }
 .quick-action-label { font-size: 0.8rem; font-weight: 500; color: var(--brown); }
 
 /* ============================================================
