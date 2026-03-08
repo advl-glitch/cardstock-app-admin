@@ -2835,30 +2835,54 @@ function setAuditSize(mode, btn) {
   renderAuditCards(itemsCache || []);
 }
 
+function renderAuditCard(item) {
+  return `<div class="audit-card audit-card-${auditSizeMode}">
+    <div class="audit-card-info">
+      <div class="audit-card-name">${item.DisplayName || item.Name}</div>
+      <div class="audit-card-id">#${item.ItemID} · ${item.ProductType || 'Card'}</div>
+      <label class="retire-toggle-wrap" title="Mark as Retired">
+        <input type="checkbox" class="retire-checkbox" data-item-id="${item.ItemID}" ${item.Status === 'Retired' ? 'checked' : ''}>
+        <span class="retire-toggle-label">Retire</span>
+      </label>
+    </div>
+    <div>
+      <div class="audit-card-stock">${item.StartingAtHome || '—'}</div>
+      <div class="audit-card-stock-label">On File</div>
+    </div>
+    <div class="audit-input-group">
+      <input type="number" class="audit-new-input" placeholder="New #" min="0" data-item-id="${item.ItemID}">
+      <div class="audit-new-label">Actual Count</div>
+    </div>
+  </div>`;
+}
+
 function renderAuditCards(items) {
   const container = document.getElementById('audit-container');
   if (!container || !items) return;
+  const active = items.filter(i => i.Status !== 'Retired');
+  const retired = items.filter(i => i.Status === 'Retired');
   container.innerHTML = `
-    ${items.map(item => `
-      <div class="audit-card audit-card-${auditSizeMode}">
-        <div class="audit-card-info">
-          <div class="audit-card-name">${item.DisplayName || item.Name}</div>
-          <div class="audit-card-id">#${item.ItemID} · ${item.ProductType || 'Card'}</div>
-          <label class="retire-toggle-wrap" title="Mark as Retired">
-            <input type="checkbox" class="retire-checkbox" data-item-id="${item.ItemID}" ${item.Status === 'Retired' ? 'checked' : ''}>
-            <span class="retire-toggle-label">Retire</span>
-          </label>
+    ${active.map(item => renderAuditCard(item)).join('')}
+    <button class="btn btn-primary btn-lg" style="width:100%;margin-top:1rem" onclick="saveAudit()">✓ Save All Updates</button>
+    ${retired.length > 0 ? `
+      <div style="margin-top:1.5rem;border-top:2px solid var(--brown-light);padding-top:1rem;">
+        <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:0.5rem 0;" onclick="toggleAuditRetired()">
+          <span style="font-weight:600;color:var(--brown-mid);">🪦 Retired Designs (${retired.length})</span>
+          <span id="audit-retired-arrow" style="transition:transform 0.2s;">▶</span>
         </div>
-        <div>
-          <div class="audit-card-stock">${item.StartingAtHome || '—'}</div>
-          <div class="audit-card-stock-label">On File</div>
+        <div id="audit-retired-section" style="display:none;">
+          ${retired.map(item => renderAuditCard(item)).join('')}
         </div>
-        <div class="audit-input-group">
-          <input type="number" class="audit-new-input" placeholder="New #" min="0" data-item-id="${item.ItemID}">
-          <div class="audit-new-label">Actual Count</div>
-        </div>
-      </div>`).join('')}
-    <button class="btn btn-primary btn-lg" style="width:100%;margin-top:1rem" onclick="saveAudit()">✓ Save All Updates</button>`;
+      </div>` : ''}`;
+}
+
+function toggleAuditRetired() {
+  const section = document.getElementById('audit-retired-section');
+  const arrow = document.getElementById('audit-retired-arrow');
+  if (!section) return;
+  const hidden = section.style.display === 'none';
+  section.style.display = hidden ? '' : 'none';
+  arrow.textContent = hidden ? '▼' : '▶';
 }
 
 async function saveAudit() {
