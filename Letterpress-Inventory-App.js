@@ -209,7 +209,7 @@ const ALL_STAT_TILES = [
   { id: 'stat-revenue',  icon: '💰', color: 'teal',  label: 'Total Revenue'   },
   { id: 'stat-sold',     icon: '🃏', color: 'amber', label: 'Cards Sold'      },
   { id: 'stat-stock',    icon: '📦', color: 'green', label: 'In Stock (Home)' },
-  { id: 'stat-consign',  icon: '🏪', color: 'coral', label: 'On Consignment'  },
+  { id: 'stat-consign',  icon: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="32" height="32"><rect x="6" y="52" width="52" height="5" rx="2" fill="#c0bab2"/><rect x="10" y="28" width="44" height="24" rx="2" fill="#f0ece4"/><rect x="34" y="33" width="14" height="13" rx="1.5" fill="#b8dce8" opacity="0.85"/><rect x="34" y="33" width="14" height="13" rx="1.5" fill="none" stroke="#8ab0bc" stroke-width="1"/><line x1="41" y1="33" x2="41" y2="46" stroke="#8ab0bc" stroke-width="0.8"/><line x1="34" y1="39.5" x2="48" y2="39.5" stroke="#8ab0bc" stroke-width="0.8"/><rect x="16" y="37" width="10" height="15" rx="1.5" fill="#e88fa0"/><circle cx="24.5" cy="44.5" r="1" fill="#c45f78"/><path d="M7 34 Q32 24 57 34 L57 28 Q32 18 7 28 Z" fill="#b8a9d9"/><path d="M7 28 Q32 18 57 28 L57 34 Q32 24 7 34 Z" fill="none"/><line x1="13" y1="21" x2="10" y2="35" stroke="white" stroke-width="3" opacity="0.45"/><line x1="21" y1="19" x2="19" y2="33" stroke="white" stroke-width="3" opacity="0.45"/><line x1="29" y1="18" x2="28" y2="32" stroke="white" stroke-width="3" opacity="0.45"/><line x1="37" y1="18" x2="37" y2="32" stroke="white" stroke-width="3" opacity="0.45"/><line x1="45" y1="19" x2="46" y2="33" stroke="white" stroke-width="3" opacity="0.45"/><line x1="53" y1="21" x2="55" y2="35" stroke="white" stroke-width="3" opacity="0.45"/><path d="M7 33 Q10.5 37 14 33 Q17.5 37 21 33 Q24.5 37 28 33 Q31.5 37 35 33 Q38.5 37 42 33 Q45.5 37 49 33 Q52.5 37 57 33" fill="none" stroke="#9b8cc4" stroke-width="1.5"/><rect x="18" y="8" width="28" height="11" rx="2" fill="#7c6fa0"/><text x="32" y="17.5" font-family="Arial,sans-serif" font-size="7" font-weight="bold" fill="white" text-anchor="middle">STORE</text><rect x="30" y="19" width="4" height="9" fill="#9b8cc4"/></svg>`, color: 'coral', label: 'On Consignment'  },
   { id: 'stat-designs',  icon: '✏️', color: 'teal',  label: 'Total Designs'   },
   { id: 'stat-printed',  icon: '🖨️', color: 'amber', label: 'Total Printed'   },
   { id: 'stat-partners', icon: '🤝', color: 'green', label: 'Retail Partners' },
@@ -219,42 +219,7 @@ const ALL_STAT_TILES = [
 const ALL_QUICK_ACTIONS = [
   { id: 'qa-add-design',    icon: '✚',  label: 'Add New Design',   page: 'new-item-design'     },
   { id: 'qa-print-run',     icon: '🖨️', label: 'Log Print Run',    page: 'print-stock-updater' },
-  { id: 'qa-retail-update', icon: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="32" height="32">
-  <!-- Base / ground -->
-  <rect x="6" y="52" width="52" height="5" rx="2" fill="#c0bab2"/>
-  <!-- Building body -->
-  <rect x="10" y="28" width="44" height="24" rx="2" fill="#f0ece4"/>
-  <!-- Window -->
-  <rect x="34" y="33" width="14" height="13" rx="1.5" fill="#b8dce8" opacity="0.85"/>
-  <rect x="34" y="33" width="14" height="13" rx="1.5" fill="none" stroke="#8ab0bc" stroke-width="1"/>
-  <line x1="41" y1="33" x2="41" y2="46" stroke="#8ab0bc" stroke-width="0.8"/>
-  <line x1="34" y1="39.5" x2="48" y2="39.5" stroke="#8ab0bc" stroke-width="0.8"/>
-  <!-- Door -->
-  <rect x="16" y="37" width="10" height="15" rx="1.5" fill="#e88fa0"/>
-  <circle cx="24.5" cy="44.5" r="1" fill="#c45f78"/>
-  <!-- Awning frame -->
-  <path d="M7 28 Q32 18 57 28" fill="#b8a9d9" stroke="#9b8cc4" stroke-width="1"/>
-  <!-- Awning stripes -->
-  <clipPath id="awningClip">
-    <path d="M7 28 Q32 18 57 28 L57 35 Q32 25 7 35 Z"/>
-  </clipPath>
-  <g clip-path="url(#awningClip)">
-    <path d="M7 28 Q32 18 57 28 L57 35 Q32 25 7 35 Z" fill="#b8a9d9"/>
-    <line x1="14" y1="18" x2="11" y2="36" stroke="white" stroke-width="3.5" opacity="0.5"/>
-    <line x1="22" y1="16" x2="20" y2="34" stroke="white" stroke-width="3.5" opacity="0.5"/>
-    <line x1="30" y1="15" x2="29" y2="33" stroke="white" stroke-width="3.5" opacity="0.5"/>
-    <line x1="38" y1="15" x2="38" y2="33" stroke="white" stroke-width="3.5" opacity="0.5"/>
-    <line x1="46" y1="16" x2="47" y2="34" stroke="white" stroke-width="3.5" opacity="0.5"/>
-    <line x1="54" y1="18" x2="56" y2="36" stroke="white" stroke-width="3.5" opacity="0.5"/>
-  </g>
-  <!-- Awning scallop bottom -->
-  <path d="M7 33 Q10.5 37 14 33 Q17.5 37 21 33 Q24.5 37 28 33 Q31.5 37 35 33 Q38.5 37 42 33 Q45.5 37 49 33 Q52.5 37 57 33" fill="none" stroke="#9b8cc4" stroke-width="1.5"/>
-  <!-- Sign box -->
-  <rect x="18" y="8" width="28" height="11" rx="2" fill="#7c6fa0"/>
-  <text x="32" y="17.5" font-family="Arial, sans-serif" font-size="7" font-weight="bold" fill="white" text-anchor="middle">STORE</text>
-  <!-- Sign post -->
-  <rect x="30" y="19" width="4" height="9" fill="#9b8cc4"/>
-</svg>`, label: 'Retail Stock Update', page: 'record-sale'         },
+  { id: 'qa-retail-update', icon: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="32" height="32"><rect x="6" y="52" width="52" height="5" rx="2" fill="#c0bab2"/><rect x="10" y="28" width="44" height="24" rx="2" fill="#f0ece4"/><rect x="34" y="33" width="14" height="13" rx="1.5" fill="#b8dce8" opacity="0.85"/><rect x="34" y="33" width="14" height="13" rx="1.5" fill="none" stroke="#8ab0bc" stroke-width="1"/><line x1="41" y1="33" x2="41" y2="46" stroke="#8ab0bc" stroke-width="0.8"/><line x1="34" y1="39.5" x2="48" y2="39.5" stroke="#8ab0bc" stroke-width="0.8"/><rect x="16" y="37" width="10" height="15" rx="1.5" fill="#e88fa0"/><circle cx="24.5" cy="44.5" r="1" fill="#c45f78"/><path d="M7 34 Q32 24 57 34 L57 28 Q32 18 7 28 Z" fill="#b8a9d9"/><path d="M7 28 Q32 18 57 28 L57 34 Q32 24 7 34 Z" fill="none"/><line x1="13" y1="21" x2="10" y2="35" stroke="white" stroke-width="3" opacity="0.45"/><line x1="21" y1="19" x2="19" y2="33" stroke="white" stroke-width="3" opacity="0.45"/><line x1="29" y1="18" x2="28" y2="32" stroke="white" stroke-width="3" opacity="0.45"/><line x1="37" y1="18" x2="37" y2="32" stroke="white" stroke-width="3" opacity="0.45"/><line x1="45" y1="19" x2="46" y2="33" stroke="white" stroke-width="3" opacity="0.45"/><line x1="53" y1="21" x2="55" y2="35" stroke="white" stroke-width="3" opacity="0.45"/><path d="M7 33 Q10.5 37 14 33 Q17.5 37 21 33 Q24.5 37 28 33 Q31.5 37 35 33 Q38.5 37 42 33 Q45.5 37 49 33 Q52.5 37 57 33" fill="none" stroke="#9b8cc4" stroke-width="1.5"/><rect x="18" y="8" width="28" height="11" rx="2" fill="#7c6fa0"/><text x="32" y="17.5" font-family="Arial,sans-serif" font-size="7" font-weight="bold" fill="white" text-anchor="middle">STORE</text><rect x="30" y="19" width="4" height="9" fill="#9b8cc4"/></svg>`, label: 'Retail Stock Update', page: 'record-sale'         },
   { id: 'qa-orders',        icon: '📋', label: 'View Orders',      page: 'orders'              },
   { id: 'qa-vending',       icon: '🎰', label: 'Vending Machines', page: 'vending-machines'    },
   { id: 'qa-partners',      icon: '❖',  label: 'Partners',         page: 'retail-partners'     },
