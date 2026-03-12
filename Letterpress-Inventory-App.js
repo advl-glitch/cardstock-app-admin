@@ -3014,7 +3014,7 @@ function renderAuditCard(item) {
       </label>
     </div>
     <div>
-      <div class="audit-card-stock">${onHand || '—'}</div>
+      <div class="audit-card-stock" style="color:var(--amber)">${onHand || '—'}</div>
       <div class="audit-card-stock-label">On Hand</div>
     </div>
     <div>
