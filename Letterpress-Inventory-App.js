@@ -1795,21 +1795,13 @@ function renderInventoryCards() {
     return;
   }
 
-  const visible = retailInventoryState.filter(item => {
-    if (item.isNew) return true;
-    // Calculate what the final stock will be after save
+  container.innerHTML = retailInventoryState.map((item, realIdx) => {
     const finalStock = Math.max(0, (item.currentStock || 0) + (item.added || 0) - (item.pulled || 0));
-    // Hide if final stock is 0 (all cards pulled/accounted for)
-    if (finalStock === 0) return false;
-    return true;
-  });
-
-  container.innerHTML = visible.map((item) => {
-    const realIdx    = retailInventoryState.indexOf(item);
+    const pendingRemoval = !item.isNew && finalStock === 0;
     const estSold    = item.isNew ? 0 : Math.max(0, item.previousStock - item.currentStock - item.pulled + item.added);
     const estRevenue = (estSold * Number(item.unitPrice || 0)).toFixed(2);
     return `
-      <div class="inventory-card ${item.isNew ? 'inventory-card-new' : ''}">
+      <div class="inventory-card ${item.isNew ? 'inventory-card-new' : ''} ${pendingRemoval ? 'inventory-card-pending-removal' : ''}">
         <div class="inventory-card-header">
           <h4 class="design-name">${item.designName}${item.designId ? ` <span style="color:var(--brown-light);font-weight:400;font-size:0.8rem;">(#${item.designId})</span>` : ''}</h4>
           <span class="stock-badge"><span class="current-stock">${item.currentStock}</span> on shelf</span>
@@ -1820,6 +1812,7 @@ function renderInventoryCards() {
           <span class="inventory-est-label">Est. sold: <strong>${estSold > 0 ? estSold : '—'}</strong></span>
           <span class="inventory-est-label">Est. revenue: <strong>${estSold > 0 ? '$' + estRevenue : '—'}</strong></span>
         </div>` : ''}
+        ${pendingRemoval ? `<div class="pending-removal-banner">⚠️ Stock is 0 — this design will be removed from this store when you save.</div>` : ''}
         <div class="inventory-actions">
           <div class="action-field">
             <label>Update Stock (New Total)</label>
@@ -1843,8 +1836,8 @@ function renderInventoryCards() {
       </div>`;
   }).join('');
 
-  if (visible.length === 0) {
-    container.innerHTML = `<div class="dog-state">${dogEmpty('All inventory has been pulled.')}</div>`;
+  if (retailInventoryState.length === 0) {
+    container.innerHTML = `<div class="dog-state">${dogEmpty('No inventory recorded for this partner yet.')}<br><button class="btn btn-primary" style="margin-top:1rem" onclick="openAddDesignToPartnerModal()">✚ Add First Design</button></div>`;
   }
 }
 
@@ -1855,7 +1848,7 @@ function updateInventoryField(idx, field, value) {
     const badges = document.querySelectorAll('.inventory-card .current-stock');
     if (badges[idx]) badges[idx].textContent = parseInt(value) || 0;
   }
-  // Re-render to hide items with 0 stock or fully pulled
+  // Re-render to update pending-removal state when stock changes
   if (field === 'pulled' || field === 'currentStock') {
     renderInventoryCards();
   }
