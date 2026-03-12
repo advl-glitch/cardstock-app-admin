@@ -495,6 +495,7 @@ function getRetailPartners() {
         contactEmail: row[idx['ContactEmail']],
         storePhoto: row[idx['StorePhotoURL']],
         notes: row[idx['Notes']],
+        retailItemCodes: row[idx['RetailItemCodes']] || '',
       }))
       .filter(p => p.locationType === 'retail_partner' && (p.active === true || String(p.active).toUpperCase() === 'TRUE'));
 
@@ -510,6 +511,7 @@ function getRetailPartners() {
       contactEmail: p.contactEmail,
       storePhoto: p.storePhoto,
       notes: p.notes,
+      retailItemCodes: p.retailItemCodes,
     }));
 
     return { success: true, partners: choices };
@@ -529,21 +531,28 @@ function addRetailPartner(partnerData) {
     const nextNum = nums.length > 0 ? Math.max(...nums) + 1 : 1;
     const locationId = 'LOC' + String(nextNum).padStart(3,'0');
 
-    sheet.appendRow([
-      locationId,
-      partnerData.storeName,
-      partnerData.split ? parseFloat(partnerData.split) / 100 : '',
-      partnerData.partnerType || 'retail_partner',
-      true,
-      partnerData.notes || '',
-      partnerData.address || '',
-      partnerData.city || '',
-      partnerData.phone || '',
-      partnerData.contactName || '',
-      partnerData.contactPhone || '',
-      partnerData.contactEmail || '',
-      ''
-    ]);
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const newRow = new Array(headers.length).fill('');
+    const fieldMap = {
+      'LocationID': locationId,
+      'DisplayName': partnerData.storeName,
+      'SplitToYou': partnerData.split ? parseFloat(partnerData.split) / 100 : '',
+      'LocationType': partnerData.partnerType || 'retail_partner',
+      'Active': true,
+      'Notes': partnerData.notes || '',
+      'Address': partnerData.address || '',
+      'City': partnerData.city || '',
+      'Phone': partnerData.phone || '',
+      'ContactName': partnerData.contactName || '',
+      'ContactPhone': partnerData.contactPhone || '',
+      'ContactEmail': partnerData.contactEmail || '',
+      'RetailItemCodes': partnerData.retailItemCodes || '',
+    };
+    Object.entries(fieldMap).forEach(([col, val]) => {
+      const idx = headers.indexOf(col);
+      if (idx !== -1) newRow[idx] = val;
+    });
+    sheet.appendRow(newRow);
 
     saveRetailerVerificationInfo(locationId, partnerData.ownerEmail, partnerData.ownerPhone);
 
@@ -576,6 +585,7 @@ function updateRetailPartner(partnerData) {
           'ContactPhone': partnerData.contactPhone,
           'ContactEmail': partnerData.contactEmail,
           'Active': partnerData.active,
+          'RetailItemCodes': partnerData.retailItemCodes,
         };
         Object.entries(fieldMap).forEach(([field, val]) => {
           const colIndex = headers.indexOf(field);
@@ -1523,6 +1533,22 @@ function getDashboardStats() {
       });
     }
 
+    // Sum actual revenue from RetailSales sheet
+    let totalRevenue = 0;
+    try {
+      const salesSheet = SPREADSHEET.getSheetByName('RetailSales');
+      if (salesSheet) {
+        const salesData = salesSheet.getDataRange().getValues();
+        const salesHeaders = salesData.shift();
+        const actualIdx = salesHeaders.indexOf('ActualSales');
+        if (actualIdx !== -1) {
+          salesData.forEach(row => {
+            totalRevenue += parseFloat(row[actualIdx]) || 0;
+          });
+        }
+      }
+    } catch (e) {}
+
     return {
       success: true,
       stats: {
@@ -1531,7 +1557,7 @@ function getDashboardStats() {
         totalMachines,
         totalPrinted,
         totalInStock,
-        totalRevenue: 0,
+        totalRevenue,
         totalSold: 0,
         totalOnConsignment: 0,
       }

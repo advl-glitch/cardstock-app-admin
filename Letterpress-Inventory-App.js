@@ -230,6 +230,19 @@ function formatPhoneField(input) {
   else input.value = digits.slice(0,3) + '-' + digits.slice(3,6) + '-' + digits.slice(6);
 }
 
+function addSkuCodeRow(product = '', code = '') {
+  const list = document.getElementById('sku-codes-list');
+  if (!list) return;
+  const row = document.createElement('div');
+  row.className = 'sku-code-row';
+  row.style.cssText = 'display:flex;gap:0.4rem;align-items:center;margin-bottom:0.35rem;';
+  row.innerHTML = `
+    <input class="field-input sku-product" type="text" placeholder="Product (e.g. VA Shop Cards)" value="${product}" style="flex:1;">
+    <input class="field-input sku-code" type="text" placeholder="Code (e.g. 8440)" value="${code}" style="width:5rem;">
+    <button type="button" style="background:none;border:none;color:var(--coral);font-size:1.2rem;cursor:pointer;padding:0 0.3rem;" onclick="this.parentElement.remove()">✕</button>`;
+  list.appendChild(row);
+}
+
 function showToast(message, type = '') {
   const toast = document.getElementById('toast');
   toast.textContent = message;
@@ -930,7 +943,7 @@ function openEditItemModal(itemId) {
         </div>
         ${item.Photo ? `<div class="photo-preview-wrap"><img class="photo-preview-thumb" src="${fixPhotoUrl(item.Photo)}" alt="Current photo"></div>` : ''}
         <div class="photo-upload-area" onclick="document.getElementById('edit-photo-file').click()">
-          <input type="file" id="edit-photo-file" accept="image/*" capture="environment" style="display:none" onchange="handlePhotoUpload(this)">
+          <input type="file" id="edit-photo-file" accept="image/*" style="display:none" onchange="handlePhotoUpload(this)">
           <div class="photo-upload-icon">📷</div>
           <div class="photo-upload-text">Tap to take photo or choose from device</div>
         </div>
@@ -1349,7 +1362,7 @@ async function renderNewItemDesignPage() {
             <div class="form-section-title">Photo URL (Optional)</div>
             <div class="form-field">
               <div class="photo-upload-area" onclick="document.getElementById('add-photo-file').click()" style="margin-bottom:0.5rem;">
-                <input type="file" id="add-photo-file" accept="image/*" capture="environment" style="display:none" onchange="handleAddPhotoUpload(this)">
+                <input type="file" id="add-photo-file" accept="image/*" style="display:none" onchange="handleAddPhotoUpload(this)">
                 <div class="photo-upload-icon">📷</div>
                 <div class="photo-upload-text">Tap to take photo or choose from device</div>
               </div>
@@ -1460,13 +1473,14 @@ async function handleAddNewItem(event) {
       status.textContent = `✅ "${rawData.designName}" added successfully!`;
       showToast('Design added!', 'success');
       // If came from inventory page, go back there; otherwise reload add new design
-      setTimeout(async () => {
+      setTimeout(() => {
         if (sessionStorage.getItem('pba_current_page') !== 'new-item-design') return;
         if (window._cameFromInventory) {
           window._cameFromInventory = false;
           document.querySelector('[data-page="main-inventory"]')?.click();
         } else {
-          await renderNewItemDesignPage();
+          window.scrollTo(0, 0);
+          loadPage('new-item-design');
         }
       }, 1500);
     } else throw new Error(result.error);
@@ -1642,11 +1656,14 @@ async function loadPartnerInventoryView(partnerId, partnerMeta) {
       isNew:         false,
     }));
 
+    const skuCodesHtml = (() => { try { const codes = JSON.parse((partnerMeta && partnerMeta.retailItemCodes) || '[]'); return codes.length ? `<div style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-top:0.5rem;">${codes.map(c => `<span style="background:var(--cream);border:1px solid var(--tan);border-radius:6px;padding:0.2rem 0.6rem;font-size:0.8rem;"><span style="color:var(--brown-mid)">${c.product}:</span> <span style="font-family:monospace;color:var(--teal);font-weight:600">${c.code}</span></span>`).join('')}</div>` : ''; } catch(e) { return ''; } })();
+
     infoArea.innerHTML = `
       <div class="partner-info-header rss-partner-header" style="margin-bottom:1rem;">
         <div>
           <h2 id="retail-partner-name" class="partner-name" style="font-size:1.75rem;">${name}</h2>
           <p style="font-size:0.95rem;margin-top:0.35rem;">Last Inventory: <span id="last-visit-date">${lastVisit || 'Never'}</span></p>
+          ${skuCodesHtml}
         </div>
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;flex-wrap:wrap;gap:0.5rem;">
@@ -1659,12 +1676,78 @@ async function loadPartnerInventoryView(partnerId, partnerMeta) {
       <div id="inventory-list-container"></div>
       <div style="margin-top:1rem;display:flex;justify-content:flex-end;">
         <button class="btn btn-primary" onclick="savePartnerInventory()">💾 Save All Updates</button>
+      </div>
+      <hr style="border:none;border-top:1px solid var(--tan);margin:2rem 0 1.5rem;">
+      <h3 class="section-title" style="margin-bottom:0.75rem;">💰 Log Actual Sales</h3>
+      <div class="card" style="padding:1rem;">
+        <div class="form-grid">
+          <div class="form-field">
+            <label class="field-label">Month</label>
+            <input class="field-input" type="month" id="actual-sale-month" value="${new Date().toISOString().slice(0,7)}">
+          </div>
+          <div class="form-field">
+            <label class="field-label">Actual Sales ($)</label>
+            <input class="field-input" type="number" id="actual-sale-amount" step="0.01" min="0" placeholder="e.g. 125.50">
+          </div>
+        </div>
+        <div style="display:flex;gap:0.5rem;align-items:center;margin-top:0.5rem;">
+          <button class="btn btn-primary btn-sm" onclick="submitActualSale()">Save Sale</button>
+          <span id="actual-sale-status" style="font-size:0.8rem;"></span>
+        </div>
+        <div id="sales-history-container" style="margin-top:1rem;"></div>
       </div>`;
 
     renderInventoryCards();
+    loadSalesHistory(partnerId);
 
   } catch (e) {
     infoArea.innerHTML = `<div class="dog-state">${dogError(e.message)}</div>`;
+  }
+}
+
+async function submitActualSale() {
+  const month = document.getElementById('actual-sale-month')?.value;
+  const amount = document.getElementById('actual-sale-amount')?.value;
+  const status = document.getElementById('actual-sale-status');
+  if (!month || !amount) { status.textContent = 'Please enter month and amount.'; status.style.color = 'var(--coral)'; return; }
+  status.textContent = 'Saving...'; status.style.color = 'var(--teal)';
+  try {
+    const r = await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({
+      action: 'logActualSale',
+      partnerId: retailCurrentPartnerId,
+      partnerName: retailCurrentPartnerName,
+      month: month,
+      actualSales: parseFloat(amount)
+    })});
+    const result = await r.json();
+    if (result.success) {
+      status.textContent = '✅ Saved!'; status.style.color = 'var(--green)';
+      document.getElementById('actual-sale-amount').value = '';
+      loadSalesHistory(retailCurrentPartnerId);
+    } else throw new Error(result.error);
+  } catch (e) { status.textContent = '❌ ' + e.message; status.style.color = 'var(--coral)'; }
+}
+
+async function loadSalesHistory(partnerId) {
+  const container = document.getElementById('sales-history-container');
+  if (!container) return;
+  try {
+    const r = await fetch(`${GOOGLE_SCRIPT_URL}?action=getPartnerSalesHistory&partnerId=${partnerId}`);
+    const data = await r.json();
+    if (!data.success || !data.history || data.history.length === 0) {
+      container.innerHTML = '<p style="font-size:0.8rem;color:var(--brown-mid);margin:0;">No sales logged yet.</p>';
+      return;
+    }
+    container.innerHTML = `
+      <div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--brown-mid);font-weight:700;margin-bottom:0.4rem;">Sales History</div>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:0.2rem 1rem;font-size:0.85rem;">
+        ${data.history.map(h => `
+          <span style="color:var(--brown-dark)">${h.month}</span>
+          <span style="font-weight:600;color:var(--green);text-align:right;">$${Number(h.actualSales || 0).toFixed(2)}</span>
+        `).join('')}
+      </div>`;
+  } catch (e) {
+    container.innerHTML = '';
   }
 }
 
@@ -1963,6 +2046,7 @@ function openPartnerDetail(partnerId) {
     </div>
     ${partner.address ? `<p style="font-size:0.875rem;color:var(--brown-mid);margin-bottom:1rem;">📍 ${partner.address}</p>` : ''}
     ${partner.notes ? `<div style="font-size:0.875rem;color:var(--brown-mid);background:var(--cream);padding:0.75rem;border-radius:var(--radius-sm);margin-bottom:1rem;">📝 ${partner.notes}</div>` : ''}
+    ${(() => { try { const codes = JSON.parse(partner.retailItemCodes || '[]'); return codes.length ? `<div style="background:var(--cream);padding:0.75rem;border-radius:var(--radius-sm);margin-bottom:1rem;"><div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--brown-mid);font-weight:700;margin-bottom:0.4rem;">🏷️ Retail Item Codes</div>${codes.map(c => `<div style="display:flex;justify-content:space-between;font-size:0.85rem;padding:0.2rem 0;"><span style="color:var(--brown-dark)">${c.product}</span><span style="font-family:monospace;color:var(--teal);font-weight:600">${c.code}</span></div>`).join('')}</div>` : ''; } catch(e) { return ''; } })()}
     <hr class="detail-divider">
     <div class="detail-actions">
       <button class="btn btn-primary" onclick="openEditPartnerModal('${partnerId}')">✏️ Edit Partner</button>
@@ -1997,19 +2081,37 @@ async function openEditPartnerModal(partnerId) {
       <div class="form-field"><label class="field-label">Owner Email <span style="color:var(--teal)">(Private — for order verification)</span></label><input class="field-input" type="email" name="ownerEmail" value="${ownerEmail}" placeholder="Never shown to public"></div>
       <div class="form-field"><label class="field-label">Owner Cell <span style="color:var(--teal)">(Private — for order verification)</span></label><input class="field-input" type="tel" name="ownerPhone" value="${ownerPhone}" placeholder="Never shown to public" oninput="formatPhoneField(this)"></div>
       <div class="form-field"><label class="field-label">Notes</label><input class="field-input" type="text" name="notes" value="${partner.notes || ''}"></div>
+      <div class="form-field">
+        <label class="field-label">🏷️ Retail Item Codes</label>
+        <div id="sku-codes-list"></div>
+        <button type="button" class="btn btn-secondary btn-sm" style="margin-top:0.4rem" onclick="addSkuCodeRow()">+ Add Item Code</button>
+      </div>
       <div id="edit-partner-btn-wrap"><button type="submit" class="btn btn-primary" style="width:100%;margin-top:0.5rem">Save Changes</button></div>
       <div id="edit-partner-status" class="form-status"></div>
     </form>`);
+
+  // Populate existing SKU codes
+  const existingCodes = (() => { try { return JSON.parse(partner.retailItemCodes || '[]'); } catch(e) { return []; } })();
+  if (existingCodes.length === 0) addSkuCodeRow();
+  else existingCodes.forEach(c => addSkuCodeRow(c.product, c.code));
 
   document.getElementById('edit-partner-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const status  = document.getElementById('edit-partner-status');
     const btnWrap = document.getElementById('edit-partner-btn-wrap');
     const fd      = new FormData(e.target);
+    // Collect SKU codes
+    const skuRows = document.querySelectorAll('.sku-code-row');
+    const retailItemCodes = [];
+    skuRows.forEach(row => {
+      const product = row.querySelector('.sku-product')?.value?.trim();
+      const code = row.querySelector('.sku-code')?.value?.trim();
+      if (product && code) retailItemCodes.push({ product, code });
+    });
     if (btnWrap) btnWrap.style.display = 'none';
     status.className  = 'form-status loading'; status.textContent = 'Saving...';
     try {
-      const r      = await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action: 'updateRetailPartner', partnerData: { locationId: partnerId, storeName: fd.get('storeName'), city: fd.get('city'), split: fd.get('split'), address: fd.get('address'), contactName: fd.get('contactName'), contactEmail: fd.get('contactEmail'), contactPhone: fd.get('contactPhone'), ownerEmail: fd.get('ownerEmail'), ownerPhone: fd.get('ownerPhone'), notes: fd.get('notes') } }) });
+      const r      = await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action: 'updateRetailPartner', partnerData: { locationId: partnerId, storeName: fd.get('storeName'), city: fd.get('city'), split: fd.get('split'), address: fd.get('address'), contactName: fd.get('contactName'), contactEmail: fd.get('contactEmail'), contactPhone: fd.get('contactPhone'), ownerEmail: fd.get('ownerEmail'), ownerPhone: fd.get('ownerPhone'), notes: fd.get('notes'), retailItemCodes: JSON.stringify(retailItemCodes) } }) });
       const result = await r.json();
       if (result.success) {
         partnersCache = null;
@@ -2039,19 +2141,34 @@ function openAddPartnerModal() {
       <div class="form-field"><label class="field-label">Owner Email <span style="color:var(--teal);font-size:0.75rem">(Private — for order verification)</span></label><input class="field-input" type="email" name="ownerEmail" placeholder="Their personal email"></div>
       <div class="form-field"><label class="field-label">Owner Cell <span style="color:var(--teal);font-size:0.75rem">(Private — for order verification)</span></label><input class="field-input" type="tel" name="ownerPhone" placeholder="555-444-1111" oninput="formatPhoneField(this)"></div>
       <div class="form-field"><label class="field-label">Notes</label><input class="field-input" type="text" name="notes" placeholder="Any additional notes"></div>
+      <div class="form-field">
+        <label class="field-label">🏷️ Retail Item Codes</label>
+        <div id="sku-codes-list"></div>
+        <button type="button" class="btn btn-secondary btn-sm" style="margin-top:0.4rem" onclick="addSkuCodeRow()">+ Add Item Code</button>
+      </div>
       <div id="add-partner-btn-wrap"><button type="submit" class="btn btn-primary" style="width:100%;margin-top:0.5rem">Save Partner</button></div>
       <div id="partner-form-status" class="form-status"></div>
     </form>`);
+
+  addSkuCodeRow(); // Start with one empty row
 
   document.getElementById('add-partner-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const status  = document.getElementById('partner-form-status');
     const btnWrap = document.getElementById('add-partner-btn-wrap');
     const fd      = new FormData(e.target);
+    // Collect SKU codes
+    const skuRows = document.querySelectorAll('.sku-code-row');
+    const retailItemCodes = [];
+    skuRows.forEach(row => {
+      const product = row.querySelector('.sku-product')?.value?.trim();
+      const code = row.querySelector('.sku-code')?.value?.trim();
+      if (product && code) retailItemCodes.push({ product, code });
+    });
     if (btnWrap) btnWrap.style.display = 'none';
     status.className  = 'form-status loading'; status.textContent = 'Saving...';
     try {
-      const r      = await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action: 'addRetailPartner', partnerData: { storeName: fd.get('storeName'), city: fd.get('city'), split: fd.get('split'), address: fd.get('address'), contactName: fd.get('contactName'), contactEmail: fd.get('contactEmail'), contactPhone: fd.get('contactPhone'), ownerEmail: fd.get('ownerEmail'), ownerPhone: fd.get('ownerPhone'), notes: fd.get('notes') } }) });
+      const r      = await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action: 'addRetailPartner', partnerData: { storeName: fd.get('storeName'), city: fd.get('city'), split: fd.get('split'), address: fd.get('address'), contactName: fd.get('contactName'), contactEmail: fd.get('contactEmail'), contactPhone: fd.get('contactPhone'), ownerEmail: fd.get('ownerEmail'), ownerPhone: fd.get('ownerPhone'), notes: fd.get('notes'), retailItemCodes: JSON.stringify(retailItemCodes) } }) });
       const result = await r.json();
       if (result.success) {
         partnersCache = null;
@@ -2214,7 +2331,7 @@ function openAddMachineModal() {
       <div class="form-field">
         <label class="field-label">Photo</label>
         <div class="photo-upload-area" onclick="document.getElementById('machine-photo-file').click()">
-          <input type="file" id="machine-photo-file" accept="image/*" capture="environment" style="display:none" onchange="handleMachinePhotoUpload(this)">
+          <input type="file" id="machine-photo-file" accept="image/*" style="display:none" onchange="handleMachinePhotoUpload(this)">
           <div class="photo-upload-icon">📷</div>
           <div class="photo-upload-text">Tap to take photo or choose from device</div>
         </div>
@@ -2278,7 +2395,7 @@ function openEditMachineModal(machineId) {
         <label class="field-label">Photo</label>
         ${m.Photo ? `<div class="photo-preview-wrap"><img class="photo-preview-thumb" src="${fixPhotoUrl(m.Photo)}" alt="Machine photo"></div>` : ''}
         <div class="photo-upload-area" onclick="document.getElementById('machine-photo-file').click()">
-          <input type="file" id="machine-photo-file" accept="image/*" capture="environment" style="display:none" onchange="handleMachinePhotoUpload(this)">
+          <input type="file" id="machine-photo-file" accept="image/*" style="display:none" onchange="handleMachinePhotoUpload(this)">
           <div class="photo-upload-icon">📷</div>
           <div class="photo-upload-text">Tap to take photo or choose from device</div>
         </div>
