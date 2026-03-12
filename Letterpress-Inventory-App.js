@@ -270,6 +270,7 @@ function loadPage(pageName) {
     case 'retail-partners':     renderRetailPartnersPage(); break;
     case 'vending-machines':    renderVendingMachinesPage(); break;
     case 'orders':              renderOrdersPage(); break;
+    case 'market-sales':        renderMarketSalesPage(); break;
     case 'sales-reports':       renderSalesReportsPage(); break;
     case 'inventory-auditor':   renderInventoryAuditorPage(); break;
     case 'settings':            renderSettingsPage(); break;
@@ -301,6 +302,7 @@ const ALL_QUICK_ACTIONS = [
   { id: 'qa-orders',        icon: '📋', label: 'View Orders',      page: 'orders'              },
   { id: 'qa-vending',       icon: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="28" height="28"><rect x="12" y="6" width="40" height="52" rx="3" fill="#e03030" stroke="#2d2d2d" stroke-width="2"/><rect x="16" y="10" width="24" height="34" rx="2" fill="#f5f0e8"/><rect x="16" y="10" width="24" height="34" rx="2" fill="none" stroke="#2d2d2d" stroke-width="1.5"/><line x1="16" y1="21" x2="40" y2="21" stroke="#ddd" stroke-width="1"/><line x1="16" y1="32" x2="40" y2="32" stroke="#ddd" stroke-width="1"/><circle cx="21" cy="16" r="2.5" fill="#5bc0de"/><circle cx="28" cy="16" r="2.5" fill="#5bc0de"/><circle cx="35" cy="16" r="2.5" fill="#f0c040"/><circle cx="21" cy="27" r="2.5" fill="#e05050"/><circle cx="28" cy="27" r="2.5" fill="#50b080"/><circle cx="35" cy="27" r="2.5" fill="#e05050"/><circle cx="21" cy="38" r="2.5" fill="#f0c040"/><circle cx="28" cy="38" r="2.5" fill="#5bc0de"/><circle cx="35" cy="38" r="2.5" fill="#50b080"/><rect x="42" y="12" width="7" height="16" rx="1.5" fill="#1a1a1a"/><rect x="16" y="48" width="24" height="6" rx="1" fill="#b02020"/><rect x="16" y="48" width="24" height="6" rx="1" fill="none" stroke="#2d2d2d" stroke-width="1"/></svg>`, label: 'Vending Machines', page: 'vending-machines'    },
   { id: 'qa-partners',      icon: '❖',  label: 'Partners',         page: 'retail-partners'     },
+  { id: 'qa-market-sale',   icon: '🎪', label: 'Log Market Sale',  page: 'market-sales'        },
 ];
 
 function getDashPrefs() {
@@ -2889,6 +2891,152 @@ function toggleNotifSection(checkbox) {
 // ============================================================
 // SALES REPORTS
 // ============================================================
+// ============================================================
+// MARKET SALES
+// ============================================================
+function renderMarketSalesPage() {
+  const now = new Date();
+  const todayStr = now.toISOString().split('T')[0];
+
+  appContainer.innerHTML = `
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Market Sales</h1>
+        <p class="page-subtitle">Log sales from art markets, pop-ups, and direct sales</p>
+      </div>
+    </div>
+
+    <div class="form-card" style="max-width:560px;">
+      <h3 style="margin-bottom:1rem;color:var(--brown-dark);">Log a Sale</h3>
+      <div class="form-group">
+        <label class="form-label">Date *</label>
+        <input type="date" id="mkt-date" class="form-input" value="${todayStr}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Market / Event Name <span style="color:var(--brown-light);font-weight:normal">(optional)</span></label>
+        <input type="text" id="mkt-name" class="form-input" placeholder="e.g. Downtown Art Walk">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Total Sales ($) *</label>
+        <input type="number" id="mkt-total" class="form-input" step="0.01" min="0" placeholder="0.00">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Misprint Sales ($) <span style="color:var(--brown-light);font-weight:normal">(included in total)</span></label>
+        <input type="number" id="mkt-misprint" class="form-input" step="0.01" min="0" placeholder="0.00" value="0">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Cards Sold</label>
+        <input type="number" id="mkt-cards" class="form-input" min="0" placeholder="0">
+      </div>
+      <div id="mkt-btn-wrap" style="margin-top:1rem;">
+        <button class="btn btn-primary" onclick="submitMarketSale()">Save Market Sale</button>
+      </div>
+      <div id="mkt-status" class="form-status"></div>
+    </div>
+
+    <div style="max-width:560px;margin-top:2rem;">
+      <h3 style="margin-bottom:1rem;color:var(--brown-dark);">Recent Sales</h3>
+      <div id="mkt-history">${dogLoading('Loading sales history...')}</div>
+    </div>`;
+
+  loadMarketSalesHistory();
+}
+
+async function submitMarketSale() {
+  const date      = document.getElementById('mkt-date').value;
+  const totalSales = document.getElementById('mkt-total').value;
+  const btnWrap   = document.getElementById('mkt-btn-wrap');
+  const status    = document.getElementById('mkt-status');
+
+  if (!date || !totalSales) {
+    status.textContent = 'Please enter a date and total sales amount.';
+    status.style.color = '#c33';
+    return;
+  }
+
+  btnWrap.style.display = 'none';
+  status.textContent = 'Saving...';
+  status.style.color = 'var(--brown-light)';
+
+  try {
+    const payload = {
+      action: 'logMarketSale',
+      date,
+      marketName: document.getElementById('mkt-name').value.trim(),
+      totalSales: parseFloat(totalSales) || 0,
+      misprintSales: parseFloat(document.getElementById('mkt-misprint').value) || 0,
+      cardsSold: parseInt(document.getElementById('mkt-cards').value) || 0
+    };
+
+    const r = await fetch(GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await r.json();
+
+    if (data.success) {
+      showToast('Market sale logged!');
+      status.textContent = '';
+      btnWrap.style.display = '';
+      document.getElementById('mkt-name').value = '';
+      document.getElementById('mkt-total').value = '';
+      document.getElementById('mkt-misprint').value = '0';
+      document.getElementById('mkt-cards').value = '';
+      loadMarketSalesHistory();
+    } else {
+      status.textContent = 'Error: ' + (data.error || 'Unknown');
+      status.style.color = '#c33';
+      btnWrap.style.display = '';
+    }
+  } catch (e) {
+    status.textContent = 'Network error. Try again.';
+    status.style.color = '#c33';
+    btnWrap.style.display = '';
+  }
+}
+
+async function loadMarketSalesHistory() {
+  const container = document.getElementById('mkt-history');
+  if (!container) return;
+
+  try {
+    const r = await fetch(`${GOOGLE_SCRIPT_URL}?action=getMarketSales`);
+    const data = await r.json();
+
+    if (!data.success || !data.sales || data.sales.length === 0) {
+      container.innerHTML = `<div class="dog-state" style="padding:2rem">${dogEmpty('No market sales logged yet')}</div>`;
+      return;
+    }
+
+    // Sort newest first
+    const sorted = data.sales.sort((a, b) => String(b.Date).localeCompare(String(a.Date)));
+
+    container.innerHTML = sorted.map(s => {
+      const dateStr = s.Date ? new Date(s.Date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+      const name = s.MarketName || 'Direct Sale';
+      const total = parseFloat(s.TotalSales) || 0;
+      const misprint = parseFloat(s.MisprintSales) || 0;
+      const cards = parseInt(s.CardsSold) || 0;
+      return `
+        <div class="form-card" style="margin-bottom:0.75rem;padding:0.75rem 1rem;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div>
+              <strong style="color:var(--brown-dark)">${name}</strong>
+              <div style="font-size:0.78rem;color:var(--brown-light)">${dateStr}${cards ? ' · ' + cards + ' cards' : ''}</div>
+            </div>
+            <div style="text-align:right">
+              <div style="font-size:1.1rem;font-weight:700;color:var(--brown-dark)">$${total.toFixed(2)}</div>
+              ${misprint > 0 ? `<div style="font-size:0.72rem;color:var(--brown-light)">Misprints: $${misprint.toFixed(2)}</div>` : ''}
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+  } catch (e) {
+    container.innerHTML = `<div class="dog-state" style="padding:2rem">${dogEmpty('Could not load sales history')}</div>`;
+  }
+}
+
 function renderSalesReportsPage() {
   const today    = new Date().toLocaleDateString('en-CA');
   const monthAgo = new Date(Date.now() - 30 * 86400000).toLocaleDateString('en-CA');

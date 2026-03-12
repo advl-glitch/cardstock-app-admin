@@ -42,6 +42,7 @@ function doGet(e) {
     case 'getDashboardStats':    result = getDashboardStats(); break;
     case 'getConsignmentTotals': result = getConsignmentTotals(); break;
     case 'getPrintRunTotals':    result = getPrintRunTotals(); break;
+    case 'getMarketSales':       result = getMarketSales(); break;
     default:
       result = { success: false, error: 'Invalid action: ' + action };
   }
@@ -83,6 +84,7 @@ function doPost(e) {
     case 'updateItemStatus':         result = updateItemStatus(payload); break;
     case 'updatePartnerInventory':   result = updatePartnerInventory(payload); break;
     case 'logActualSale':            result = logActualSale(payload); break;
+    case 'logMarketSale':            result = logMarketSale(payload); break;
     default:
       result = { success: false, error: 'Invalid action: ' + action };
   }
@@ -861,6 +863,63 @@ function logActualSale(payload) {
 }
 
 // =============================================================================
+// MARKET SALES
+// =============================================================================
+
+function logMarketSale(payload) {
+  try {
+    const { date, marketName, totalSales, misprintSales, cardsSold } = payload;
+
+    let sheet = SPREADSHEET.getSheetByName('MarketSales');
+    if (!sheet) {
+      sheet = SPREADSHEET.insertSheet('MarketSales');
+      sheet.appendRow(['Date', 'MarketName', 'TotalSales', 'MisprintSales', 'CardsSold', 'LoggedAt']);
+    }
+
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const newRow = new Array(headers.length).fill('');
+    const fieldMap = {
+      'Date': date,
+      'MarketName': marketName || '',
+      'TotalSales': parseFloat(totalSales) || 0,
+      'MisprintSales': parseFloat(misprintSales) || 0,
+      'CardsSold': parseInt(cardsSold) || 0,
+      'LoggedAt': new Date().toISOString()
+    };
+    Object.entries(fieldMap).forEach(([col, val]) => {
+      const idx = headers.indexOf(col);
+      if (idx !== -1) newRow[idx] = val;
+    });
+    sheet.appendRow(newRow);
+
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+function getMarketSales() {
+  try {
+    const sheet = SPREADSHEET.getSheetByName('MarketSales');
+    if (!sheet) return { success: true, sales: [] };
+
+    const data = sheet.getDataRange().getValues();
+    if (data.length < 2) return { success: true, sales: [] };
+
+    const headers = data.shift();
+    const sales = data.map(row => {
+      const obj = {};
+      headers.forEach((h, i) => { obj[h] = row[i]; });
+      return obj;
+    }).filter(s => s.Date);
+
+    return { success: true, sales };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+// =============================================================================
 // VENDING MACHINES
 // =============================================================================
 
@@ -1559,6 +1618,20 @@ function getDashboardStats() {
         if (actualIdx !== -1) salesData.forEach(row => { totalRevenue += parseFloat(row[actualIdx]) || 0; });
       }
     } catch (e) {}
+
+    // Sum market sales revenue
+    let marketRevenue = 0;
+    try {
+      const mktSheet = SPREADSHEET.getSheetByName('MarketSales');
+      if (mktSheet) {
+        const mktData = mktSheet.getDataRange().getValues();
+        const mktHeaders = mktData.shift();
+        const tsIdx = mktHeaders.indexOf('TotalSales');
+        if (tsIdx !== -1) mktData.forEach(row => { marketRevenue += parseFloat(row[tsIdx]) || 0; });
+      }
+    } catch (e) {}
+
+    totalRevenue += marketRevenue;
 
     // Get consignment totals once
     let totalOnConsignment = 0;
