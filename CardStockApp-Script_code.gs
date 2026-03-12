@@ -41,6 +41,7 @@ function doGet(e) {
     case 'searchRetailers':      result = searchRetailers(e.parameter.query); break;
     case 'getDashboardStats':    result = getDashboardStats(); break;
     case 'getConsignmentTotals': result = getConsignmentTotals(); break;
+    case 'getPrintRunTotals':    result = getPrintRunTotals(); break;
     default:
       result = { success: false, error: 'Invalid action: ' + action };
   }
@@ -1526,31 +1527,42 @@ function getDashboardStats() {
     const totalPartners = partnersResult.success ? partnersResult.partners.length : 0;
     const totalMachines = machinesResult.success ? machinesResult.machines.filter(m => m.Status !== 'In Storage').length : 0;
 
-    let totalPrinted = 0;
     let totalInStock = 0;
     if (itemsResult.success) {
       itemsResult.items.forEach(item => {
-        totalPrinted += parseInt(item.InitialPrintQty) || 0;
         totalInStock += parseInt(item.StartingAtHome) || 0;
       });
     }
 
-    // Sum actual revenue and cards sold from RetailSales sheet
+    // Sum total printed from PrintRuns sheet (the real source of truth)
+    let totalPrinted = 0;
+    try {
+      const prSheet = SPREADSHEET.getSheetByName('PrintRuns');
+      if (prSheet) {
+        const prData = prSheet.getDataRange().getValues();
+        const prHeaders = prData.shift();
+        const qtyIdx = prHeaders.indexOf('Quantity') !== -1 ? prHeaders.indexOf('Quantity') : 3; // fallback to column 4
+        prData.forEach(row => {
+          totalPrinted += parseInt(row[qtyIdx]) || 0;
+        });
+      }
+    } catch (e) {}
+
+    // Sum actual revenue from RetailSales sheet
     let totalRevenue = 0;
-    let totalSold = 0;
     try {
       const salesSheet = SPREADSHEET.getSheetByName('RetailSales');
       if (salesSheet) {
         const salesData = salesSheet.getDataRange().getValues();
         const salesHeaders = salesData.shift();
         const actualIdx = salesHeaders.indexOf('ActualSales');
-        const cardsIdx = salesHeaders.indexOf('CardsSold');
-        salesData.forEach(row => {
-          if (actualIdx !== -1) totalRevenue += parseFloat(row[actualIdx]) || 0;
-          if (cardsIdx !== -1) totalSold += parseInt(row[cardsIdx]) || 0;
-        });
+        if (actualIdx !== -1) salesData.forEach(row => { totalRevenue += parseFloat(row[actualIdx]) || 0; });
       }
     } catch (e) {}
+
+    // Get consignment totals once
+    let totalOnConsignment = 0;
+    try { const c = getConsignmentTotals(); if (c.success) totalOnConsignment = c.grandTotal; } catch(e) {}
 
     return {
       success: true,
@@ -1561,10 +1573,39 @@ function getDashboardStats() {
         totalPrinted,
         totalInStock,
         totalRevenue,
-        totalSold,
-        totalOnConsignment: (() => { try { const c = getConsignmentTotals(); return c.success ? c.grandTotal : 0; } catch(e) { return 0; } })(),
+        totalOnConsignment,
+        totalSold: Math.max(0, totalPrinted - totalInStock - totalOnConsignment),
       }
     };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+
+// =============================================================================
+// PRINT RUN TOTALS — total ever printed per item
+// =============================================================================
+
+function getPrintRunTotals() {
+  try {
+    const sheet = SPREADSHEET.getSheetByName('PrintRuns');
+    if (!sheet) return { success: true, totals: {} };
+
+    const data = sheet.getDataRange().getValues();
+    if (data.length < 2) return { success: true, totals: {} };
+
+    const headers = data.shift();
+    const itemIdx = headers.indexOf('ItemID') !== -1 ? headers.indexOf('ItemID') : 2;
+    const qtyIdx = headers.indexOf('Quantity') !== -1 ? headers.indexOf('Quantity') : 3;
+
+    const totals = {};
+    data.forEach(row => {
+      const itemId = String(row[itemIdx]);
+      totals[itemId] = (totals[itemId] || 0) + (parseInt(row[qtyIdx]) || 0);
+    });
+
+    return { success: true, totals };
   } catch (e) {
     return { success: false, error: e.message };
   }

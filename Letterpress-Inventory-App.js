@@ -905,6 +905,7 @@ async function openItemDetail(itemId) {
       <div class="detail-stat"><div class="detail-stat-label">Type</div><div class="detail-stat-value" style="font-size:1rem">${item.ProductType || '—'}</div></div>
       <div class="detail-stat"><div class="detail-stat-label">On Hand</div><div class="detail-stat-value">${item.StartingAtHome || 0}</div></div>
       <div class="detail-stat"><div class="detail-stat-label">At Stores</div><div class="detail-stat-value" id="detail-at-stores-${item.ItemID}" style="color:var(--teal)">...</div></div>
+      <div class="detail-stat"><div class="detail-stat-label">Total Printed</div><div class="detail-stat-value" id="detail-printed-${item.ItemID}" style="color:var(--amber)">...</div></div>
       <div class="detail-stat"><div class="detail-stat-label">Status</div><div class="detail-stat-value" style="font-size:1rem">${item.Status === 'Retired' ? '🪦 Retired' : item.Status === 'Limited' ? '⭐ Limited' : '✅ Open'}</div></div>
     </div>
     ${item.Notes ? `<div style="margin-bottom:1rem;font-size:0.875rem;color:var(--brown-mid);background:var(--cream);padding:0.75rem;border-radius:var(--radius-sm);">📝 ${item.Notes}</div>` : ''}
@@ -915,14 +916,21 @@ async function openItemDetail(itemId) {
       <button class="btn btn-secondary" onclick="closeDetailPanel();document.querySelector('[data-page=print-stock-updater]').click()">🖨️ Log Print Run</button>
       <button class="btn btn-secondary" onclick="closeDetailPanel()">Close</button>
     </div>`);
-  // Load consignment data for this item
+  // Load consignment and print run data for this item
   try {
-    const ct = window._consignmentTotals || (await fetch(`${GOOGLE_SCRIPT_URL}?action=getConsignmentTotals`).then(r => r.json()).then(d => { if (d.success) { window._consignmentTotals = d.totals; return d.totals; } return {}; }));
-    const el = document.getElementById(`detail-at-stores-${item.ItemID}`);
-    if (el) el.textContent = ct[String(item.ItemID)] || 0;
+    const [ctData, prData] = await Promise.all([
+      window._consignmentTotals ? Promise.resolve(window._consignmentTotals) : fetch(`${GOOGLE_SCRIPT_URL}?action=getConsignmentTotals`).then(r => r.json()).then(d => { if (d.success) { window._consignmentTotals = d.totals; return d.totals; } return {}; }),
+      window._printRunTotals ? Promise.resolve(window._printRunTotals) : fetch(`${GOOGLE_SCRIPT_URL}?action=getPrintRunTotals`).then(r => r.json()).then(d => { if (d.success) { window._printRunTotals = d.totals; return d.totals; } return {}; }),
+    ]);
+    const storesEl = document.getElementById(`detail-at-stores-${item.ItemID}`);
+    if (storesEl) storesEl.textContent = ctData[String(item.ItemID)] || 0;
+    const printedEl = document.getElementById(`detail-printed-${item.ItemID}`);
+    if (printedEl) printedEl.textContent = prData[String(item.ItemID)] || 0;
   } catch(e) {
-    const el = document.getElementById(`detail-at-stores-${item.ItemID}`);
-    if (el) el.textContent = '—';
+    const storesEl = document.getElementById(`detail-at-stores-${item.ItemID}`);
+    if (storesEl) storesEl.textContent = '—';
+    const printedEl = document.getElementById(`detail-printed-${item.ItemID}`);
+    if (printedEl) printedEl.textContent = '—';
   }
 }
 
