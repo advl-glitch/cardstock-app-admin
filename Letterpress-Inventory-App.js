@@ -1665,16 +1665,18 @@ async function loadPartnerInventoryView(partnerId, partnerMeta) {
     const { name, lastVisit, inventory } = partnerRes.data;
     retailCurrentPartnerName = name;
 
-    retailInventoryState = (inventory || []).map(item => ({
-      designId:      item.designId,
-      designName:    item.designName,
-      unitPrice:     item.unitPrice || (itemsCache || []).find(i => String(i.ItemID) === String(item.designId))?.UnitPrice || 0,
-      previousStock: item.currentStock,
-      currentStock:  item.currentStock,
-      pulled:        0,
-      added:         0,
-      isNew:         false,
-    }));
+    retailInventoryState = (inventory || [])
+      .filter(item => (item.currentStock || 0) > 0)
+      .map(item => ({
+        designId:      item.designId,
+        designName:    item.designName,
+        unitPrice:     item.unitPrice || (itemsCache || []).find(i => String(i.ItemID) === String(item.designId))?.UnitPrice || 0,
+        previousStock: item.currentStock,
+        currentStock:  item.currentStock,
+        pulled:        0,
+        added:         0,
+        isNew:         false,
+      }));
 
     const skuCodesHtml = (() => { try { const codes = JSON.parse((partnerMeta && partnerMeta.retailItemCodes) || '[]'); return codes.length ? `<div style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-top:0.5rem;">${codes.map(c => `<span style="background:var(--cream);border:1px solid var(--tan);border-radius:6px;padding:0.2rem 0.6rem;font-size:0.8rem;"><span style="color:var(--brown-mid)">${c.product}:</span> <span style="font-family:monospace;color:var(--teal);font-weight:600">${c.code}</span></span>`).join('')}</div>` : ''; } catch(e) { return ''; } })();
 
