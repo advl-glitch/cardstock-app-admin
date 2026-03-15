@@ -1711,8 +1711,8 @@ async function loadPartnerInventoryView(partnerId, partnerMeta) {
         <h3 class="section-title" style="margin:0;">Update Inventory</h3>
         <div style="display:flex;gap:0.5rem;align-items:center;">
           <div class="view-toggle" title="Card size">
-            <button class="view-toggle-btn active" onclick="setRetailCardSize('compact',this)">▬</button>
-            <button class="view-toggle-btn" onclick="setRetailCardSize('comfy',this)">≡</button>
+            <button class="view-toggle-btn" onclick="setRetailCardSize('compact',this)">▬</button>
+            <button class="view-toggle-btn active" onclick="setRetailCardSize('comfy',this)">≡</button>
           </div>
           <button class="btn btn-secondary btn-sm" onclick="openAddDesignToPartnerModal()">✚ Add Design to Store</button>
           <button class="btn btn-primary" onclick="savePartnerInventory()">💾 Save All Updates</button>
@@ -1812,7 +1812,7 @@ async function loadSalesHistory(partnerId) {
 }
 
 let retailSummaryExpanded = false;
-let retailCardSize = 'compact';
+let retailCardSize = 'comfy';
 
 function toggleSummaryView() {
   retailSummaryExpanded = !retailSummaryExpanded;
@@ -1924,7 +1924,7 @@ function renderInventoryCards() {
         </div>
         <div class="inventory-actions">
           <div class="action-field">
-            <label>Count</label>
+            <label>New Count</label>
             <input type="number" class="action-input" placeholder="#" min="0"
               value="${item.currentStock || ''}"
               oninput="updateInventoryField(${realIdx}, 'currentStock', this.value)">
