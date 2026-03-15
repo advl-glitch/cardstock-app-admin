@@ -916,7 +916,11 @@ async function openItemDetail(itemId) {
     <div class="detail-actions">
       <button class="btn btn-primary" onclick="openEditItemModal('${item.ItemID}')">✏️ Edit Design</button>
       <button class="btn btn-secondary" onclick="closeDetailPanel();document.querySelector('[data-page=print-stock-updater]').click()">🖨️ Log Print Run</button>
-      <button class="btn btn-secondary" onclick="closeDetailPanel()">Close</button>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border);">
+      <button class="btn btn-secondary btn-sm" onclick="navigateItemDetail('${item.ItemID}', -1)">← Prev</button>
+      <span style="font-size:0.75rem;color:var(--brown-light);">Browse designs</span>
+      <button class="btn btn-secondary btn-sm" onclick="navigateItemDetail('${item.ItemID}', 1)">Next →</button>
     </div>`);
   // Load consignment and print run data for this item
   try {
@@ -934,6 +938,17 @@ async function openItemDetail(itemId) {
     const printedEl = document.getElementById(`detail-printed-${item.ItemID}`);
     if (printedEl) printedEl.textContent = '—';
   }
+}
+
+function navigateItemDetail(currentId, direction) {
+  const items = itemsCache || [];
+  if (items.length === 0) return;
+  const currentIdx = items.findIndex(i => String(i.ItemID) === String(currentId));
+  if (currentIdx === -1) return;
+  let nextIdx = currentIdx + direction;
+  if (nextIdx < 0) nextIdx = items.length - 1;
+  if (nextIdx >= items.length) nextIdx = 0;
+  openItemDetail(items[nextIdx].ItemID);
 }
 
 function openEditItemModal(itemId) {
@@ -1694,7 +1709,11 @@ async function loadPartnerInventoryView(partnerId, partnerMeta) {
       <div id="stock-summary-strip" class="card" style="padding:0.75rem 1rem;margin-bottom:1.25rem;"></div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;flex-wrap:wrap;gap:0.5rem;">
         <h3 class="section-title" style="margin:0;">Update Inventory</h3>
-        <div style="display:flex;gap:0.5rem;">
+        <div style="display:flex;gap:0.5rem;align-items:center;">
+          <div class="view-toggle" title="Card size">
+            <button class="view-toggle-btn active" onclick="setRetailCardSize('compact',this)">▬</button>
+            <button class="view-toggle-btn" onclick="setRetailCardSize('comfy',this)">≡</button>
+          </div>
           <button class="btn btn-secondary btn-sm" onclick="openAddDesignToPartnerModal()">✚ Add Design to Store</button>
           <button class="btn btn-primary" onclick="savePartnerInventory()">💾 Save All Updates</button>
         </div>
@@ -1792,6 +1811,21 @@ async function loadSalesHistory(partnerId) {
   }
 }
 
+let retailSummaryExpanded = false;
+let retailCardSize = 'compact';
+
+function toggleSummaryView() {
+  retailSummaryExpanded = !retailSummaryExpanded;
+  renderStockSummary();
+}
+
+function setRetailCardSize(mode, btn) {
+  retailCardSize = mode;
+  document.querySelectorAll('.view-toggle-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderInventoryCards();
+}
+
 function renderStockSummary() {
   const strip = document.getElementById('stock-summary-strip');
   if (!strip) return;
@@ -1806,22 +1840,51 @@ function renderStockSummary() {
     return sum + Math.max(0, (item.currentStock || 0) + (item.added || 0) - (item.pulled || 0));
   }, 0);
 
-  strip.innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem;">
-      <span style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--brown-mid);font-weight:700;">${retailInventoryState.length} Designs on Shelf</span>
-      <span style="font-size:0.8rem;font-weight:600;color:var(--teal);">${totalCards} total cards</span>
-    </div>
-    <div style="display:flex;flex-wrap:wrap;gap:0.35rem;">
-      ${retailInventoryState.map(item => {
-        const stock = Math.max(0, (item.currentStock || 0) + (item.added || 0) - (item.pulled || 0));
-        const shortName = (item.designName || '').replace(/^\d+\s*—\s*/, '');
-        const displayName = shortName.length > 22 ? shortName.substring(0, 20) + '...' : shortName;
-        return `<span style="display:inline-flex;align-items:center;gap:0.3rem;background:var(--cream);border:1px solid var(--border);border-radius:100px;padding:0.2rem 0.6rem 0.2rem 0.5rem;font-size:0.75rem;color:var(--brown-mid);white-space:nowrap;">
-          <span style="background:var(--teal);color:white;border-radius:50%;width:1.2rem;height:1.2rem;display:inline-flex;align-items:center;justify-content:center;font-size:0.65rem;font-weight:700;flex-shrink:0;">${stock}</span>
-          ${displayName}
-        </span>`;
-      }).join('')}
-    </div>`;
+  if (!retailSummaryExpanded) {
+    // Compact: inline pills
+    strip.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem;">
+        <span style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--brown-mid);font-weight:700;">${retailInventoryState.length} Designs on Shelf</span>
+        <div style="display:flex;align-items:center;gap:0.5rem;">
+          <span style="font-size:0.8rem;font-weight:600;color:var(--teal);">${totalCards} total cards</span>
+          <button class="btn btn-secondary btn-sm" style="padding:0.15rem 0.5rem;font-size:0.7rem;" onclick="toggleSummaryView()">Expand</button>
+        </div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:0.35rem;">
+        ${retailInventoryState.map(item => {
+          const stock = Math.max(0, (item.currentStock || 0) + (item.added || 0) - (item.pulled || 0));
+          const shortName = (item.designName || '').replace(/^\d+\s*—\s*/, '');
+          const displayName = shortName.length > 22 ? shortName.substring(0, 20) + '...' : shortName;
+          return `<span style="display:inline-flex;align-items:center;gap:0.3rem;background:var(--cream);border:1px solid var(--border);border-radius:100px;padding:0.2rem 0.6rem 0.2rem 0.5rem;font-size:0.75rem;color:var(--brown-mid);white-space:nowrap;">
+            <span style="background:var(--teal);color:white;border-radius:50%;width:1.2rem;height:1.2rem;display:inline-flex;align-items:center;justify-content:center;font-size:0.65rem;font-weight:700;flex-shrink:0;">${stock}</span>
+            ${displayName}
+          </span>`;
+        }).join('')}
+      </div>`;
+  } else {
+    // Expanded: larger cards in a grid
+    strip.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">
+        <span style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--brown-mid);font-weight:700;">${retailInventoryState.length} Designs on Shelf</span>
+        <div style="display:flex;align-items:center;gap:0.5rem;">
+          <span style="font-size:0.8rem;font-weight:600;color:var(--teal);">${totalCards} total cards</span>
+          <button class="btn btn-secondary btn-sm" style="padding:0.15rem 0.5rem;font-size:0.7rem;" onclick="toggleSummaryView()">Compact</button>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:0.5rem;">
+        ${retailInventoryState.map(item => {
+          const stock = Math.max(0, (item.currentStock || 0) + (item.added || 0) - (item.pulled || 0));
+          const shortName = (item.designName || '').replace(/^\d+\s*—\s*/, '');
+          return `<div style="background:var(--cream);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.6rem 0.75rem;display:flex;align-items:center;gap:0.5rem;">
+            <span style="background:var(--teal);color:white;border-radius:50%;width:1.6rem;height:1.6rem;display:inline-flex;align-items:center;justify-content:center;font-size:0.8rem;font-weight:700;flex-shrink:0;">${stock}</span>
+            <div style="min-width:0;">
+              <div style="font-size:0.85rem;font-weight:500;color:var(--brown);line-height:1.2;">${shortName}</div>
+              <div style="font-size:0.7rem;color:var(--brown-light);">#${item.designId} · $${Number(item.unitPrice || 0).toFixed(2)}</div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`;
+  }
 }
 
 function renderInventoryCards() {
@@ -1840,7 +1903,7 @@ function renderInventoryCards() {
     const pendingRemoval = !item.isNew && finalStock === 0;
     const shortName = (item.designName || '').replace(/^\d+\s*—\s*/, '');
     return `
-      <div class="inventory-card ${item.isNew ? 'inventory-card-new' : ''} ${pendingRemoval ? 'inventory-card-pending-removal' : ''}">
+      <div class="inventory-card ${retailCardSize === 'comfy' ? 'inventory-card-comfy' : ''} ${item.isNew ? 'inventory-card-new' : ''} ${pendingRemoval ? 'inventory-card-pending-removal' : ''}">
         <div class="inventory-card-info">
           <div class="design-name">${shortName}</div>
           <div class="design-id">#${item.designId} · $${Number(item.unitPrice || 0).toFixed(2)}</div>

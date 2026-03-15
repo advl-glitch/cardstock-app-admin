@@ -695,6 +695,13 @@ body {
 .inventory-card-info { flex: 1; min-width: 0; }
 .inventory-card .design-name { font-weight: 500; color: var(--brown); font-size: 0.95rem; margin-bottom: 0.15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .inventory-card .design-id { font-size: 0.72rem; color: var(--teal); font-weight: 600; }
+.inventory-card-comfy { padding: 1.25rem 1.5rem; }
+.inventory-card-comfy .design-name { font-size: 1.1rem; font-family: var(--font-display); }
+.inventory-card-comfy .design-id { font-size: 0.8rem; }
+.inventory-card-comfy .inventory-stock-val { font-size: 1.6rem; }
+.inventory-card-comfy .inventory-stock-label { font-size: 0.7rem; }
+.inventory-card-comfy .action-input { width: 72px; padding: 0.45rem 0.4rem; font-size: 0.95rem; }
+.inventory-card-comfy .action-field label { font-size: 0.68rem; }
 .stock-badge { background: var(--teal-light); color: var(--teal-dark); padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.8rem; font-weight: 600; white-space: nowrap; }
 .inventory-stock-col { text-align: center; min-width: 50px; }
 .inventory-stock-val { font-family: var(--font-display); font-size: 1.35rem; }
