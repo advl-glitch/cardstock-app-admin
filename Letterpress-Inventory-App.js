@@ -1922,8 +1922,7 @@ function renderInventoryCards() {
         <div class="inventory-actions">
           <div class="action-field">
             <label>New Count</label>
-            <input type="number" class="action-input" placeholder="${item.previousStock}" min="0"
-              value=""
+            <input type="number" class="action-input" min="0"
               oninput="updateInventoryField(${realIdx}, 'currentStock', this.value === '' ? '${item.previousStock}' : this.value)">
           </div>
           <div class="action-field">
