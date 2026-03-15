@@ -1849,13 +1849,42 @@ function renderInventoryCards() {
 function updateInventoryField(idx, field, value) {
   if (!retailInventoryState[idx]) return;
   retailInventoryState[idx][field] = parseInt(value) || 0;
-  if (field === 'currentStock') {
-    const badges = document.querySelectorAll('.inventory-card .current-stock');
-    if (badges[idx]) badges[idx].textContent = parseInt(value) || 0;
+
+  // Update badge and pending-removal state in-place (no full re-render)
+  const cards = document.querySelectorAll('.inventory-card');
+  if (!cards[idx]) return;
+  const item = retailInventoryState[idx];
+  const finalStock = Math.max(0, (item.currentStock || 0) + (item.added || 0) - (item.pulled || 0));
+  const pendingRemoval = !item.isNew && finalStock === 0;
+
+  // Update badge
+  const badge = cards[idx].querySelector('.current-stock');
+  if (badge) badge.textContent = item.currentStock || 0;
+
+  // Update pending-removal state
+  if (pendingRemoval) {
+    cards[idx].classList.add('inventory-card-pending-removal');
+    if (!cards[idx].querySelector('.pending-removal-banner')) {
+      const banner = document.createElement('div');
+      banner.className = 'pending-removal-banner';
+      banner.textContent = '⚠️ Stock is 0 — this design will be removed from this store when you save.';
+      cards[idx].querySelector('.inventory-actions')?.before(banner);
+    }
+  } else {
+    cards[idx].classList.remove('inventory-card-pending-removal');
+    cards[idx].querySelector('.pending-removal-banner')?.remove();
   }
-  // Re-render to update pending-removal state when stock changes
-  if (field === 'pulled' || field === 'currentStock') {
-    renderInventoryCards();
+
+  // Update estimated sold/revenue display
+  if (!item.isNew) {
+    const estSold = Math.max(0, item.previousStock - item.currentStock - item.pulled + item.added);
+    const estRevenue = (estSold * Number(item.unitPrice || 0)).toFixed(2);
+    const estRow = cards[idx].querySelector('.inventory-est-row');
+    if (estRow) {
+      const labels = estRow.querySelectorAll('.inventory-est-label strong');
+      if (labels[1]) labels[1].textContent = estSold > 0 ? estSold : '—';
+      if (labels[2]) labels[2].textContent = estSold > 0 ? '$' + estRevenue : '—';
+    }
   }
 }
 
@@ -3040,34 +3069,45 @@ async function loadMarketSalesHistory() {
   }
 }
 
-function renderSalesReportsPage() {
+let reportCharts = {};
+let reportData = null;
+
+async function renderSalesReportsPage() {
   const today    = new Date().toLocaleDateString('en-CA');
-  const monthAgo = new Date(Date.now() - 30 * 86400000).toLocaleDateString('en-CA');
+  const monthAgo = new Date(Date.now() - 90 * 86400000).toLocaleDateString('en-CA');
   appContainer.innerHTML = `
     <div class="page-header">
       <div><h1 class="page-title">Sales Reports</h1><p class="page-subtitle">Analyze your performance and revenue</p></div>
       <div class="page-actions">
         <button class="btn btn-secondary" onclick="window.print()">🖨️ Print Report</button>
-        <button class="btn btn-primary" onclick="showToast('Google Drive upload coming soon!')">☁️ Save to Drive</button>
       </div>
     </div>
     <div class="reports-filters">
-      <div class="date-range-group">
-        <span style="font-size:0.8rem;color:var(--brown-light)">From</span>
-        <input type="date" id="date-from" value="${monthAgo}">
-        <span style="font-size:0.8rem;color:var(--brown-light)">To</span>
-        <input type="date" id="date-to" value="${today}">
+      <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+        <div class="form-field" style="margin:0;min-width:160px;">
+          <label class="field-label" style="margin-bottom:0.2rem;">Partner</label>
+          <select class="field-input" id="report-partner-filter" style="font-size:0.85rem;">
+            <option value="">All Partners</option>
+          </select>
+        </div>
+        <div class="date-range-group">
+          <span style="font-size:0.8rem;color:var(--brown-light)">From</span>
+          <input type="date" id="date-from" value="${monthAgo}">
+          <span style="font-size:0.8rem;color:var(--brown-light)">To</span>
+          <input type="date" id="date-to" value="${today}">
+        </div>
       </div>
       <div class="period-toggle">
         <button class="period-btn" onclick="setQuickRange(7,this)">7 Days</button>
-        <button class="period-btn active" onclick="setQuickRange(30,this)">30 Days</button>
-        <button class="period-btn" onclick="setQuickRange(90,this)">3 Months</button>
+        <button class="period-btn" onclick="setQuickRange(30,this)">30 Days</button>
+        <button class="period-btn active" onclick="setQuickRange(90,this)">3 Months</button>
         <button class="period-btn" onclick="setQuickRange(365,this)">1 Year</button>
+        <button class="period-btn" onclick="setQuickRange(0,this)">All Time</button>
       </div>
     </div>
     <div class="stats-grid" style="margin-bottom:1.5rem;">
       ${[
-        {icon:'💰',color:'teal', label:'Revenue (Period)',id:'report-revenue'},
+        {icon:'💰',color:'teal', label:'Total Revenue',id:'report-revenue'},
         {icon:'🃏',color:'amber',label:'Cards Sold',     id:'report-sold'},
         {icon:'🏪',color:'green',label:'Top Store',      id:'report-top-store'},
         {icon:'⭐',color:'coral',label:'Top Design',     id:'report-top-design'},
@@ -3078,30 +3118,276 @@ function renderSalesReportsPage() {
           <div class="stat-label">${s.label}</div>
         </div>`).join('')}
     </div>
+    <div class="stats-grid" style="margin-bottom:1.5rem;">
+      ${[
+        {icon:'🏪',color:'teal', label:'Retail Revenue',id:'report-retail-rev'},
+        {icon:'🎪',color:'amber',label:'Market Revenue',id:'report-market-rev'},
+        {icon:'📦',color:'green',label:'Cards on Shelves',id:'report-on-shelves'},
+        {icon:'💵',color:'coral',label:'Shelf Value',id:'report-shelf-value'},
+      ].map(s => `
+        <div class="stat-card">
+          <div class="stat-icon ${s.color}">${s.icon}</div>
+          <div class="stat-value" id="${s.id}">—</div>
+          <div class="stat-label">${s.label}</div>
+        </div>`).join('')}
+    </div>
     <div class="charts-grid">
       <div class="chart-card chart-card-full"><div class="chart-title">Revenue Over Time</div><div class="chart-container"><canvas id="revenue-chart"></canvas></div></div>
       <div class="chart-card"><div class="chart-title">Sales by Store</div><div class="chart-container"><canvas id="store-chart"></canvas></div></div>
-      <div class="chart-card"><div class="chart-title">Top Designs</div><div class="chart-container"><canvas id="design-chart"></canvas></div></div>
-    </div>`;
-  initReportCharts();
+      <div class="chart-card"><div class="chart-title">Top Designs (Est. Units Sold)</div><div class="chart-container"><canvas id="design-chart"></canvas></div></div>
+    </div>
+    <div id="report-detail-tables" style="margin-top:1.5rem;"></div>`;
+
+  // Load data
+  await loadSalesReportData();
+
+  // Set up filter listeners
+  document.getElementById('report-partner-filter')?.addEventListener('change', () => loadSalesReportData());
+  document.getElementById('date-from')?.addEventListener('change', () => loadSalesReportData());
+  document.getElementById('date-to')?.addEventListener('change', () => loadSalesReportData());
+}
+
+async function loadSalesReportData() {
+  const partnerId = document.getElementById('report-partner-filter')?.value || '';
+  const dateFrom = document.getElementById('date-from')?.value || '';
+  const dateTo = document.getElementById('date-to')?.value || '';
+
+  try {
+    let url = `${GOOGLE_SCRIPT_URL}?action=getSalesReportData`;
+    if (partnerId) url += `&partnerId=${partnerId}`;
+    if (dateFrom) url += `&dateFrom=${dateFrom}`;
+    if (dateTo) url += `&dateTo=${dateTo}`;
+
+    const r = await fetch(url);
+    const result = await r.json();
+    if (!result.success) throw new Error(result.error);
+
+    reportData = result.data;
+
+    // Populate partner dropdown (only on first load)
+    const select = document.getElementById('report-partner-filter');
+    if (select && select.options.length <= 1 && reportData.partnerList) {
+      reportData.partnerList.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.name;
+        select.appendChild(opt);
+      });
+      if (partnerId) select.value = partnerId;
+    }
+
+    // Populate stats
+    const s = reportData.stats;
+    const el = id => document.getElementById(id);
+    el('report-revenue').textContent = '$' + s.totalRevenue.toFixed(2);
+    el('report-sold').textContent = s.totalCardsSold;
+    el('report-top-store').textContent = s.topStore;
+    el('report-top-design').textContent = s.topDesign;
+    el('report-retail-rev').textContent = '$' + s.totalRetailRevenue.toFixed(2);
+    el('report-market-rev').textContent = partnerId ? 'N/A' : '$' + s.totalMarketRevenue.toFixed(2);
+
+    // Shelf stats
+    let totalOnShelves = 0, totalShelfValue = 0;
+    (reportData.partnerStockSummary || []).forEach(p => {
+      totalOnShelves += p.cardsOnShelf;
+      totalShelfValue += p.shelfValue;
+    });
+    el('report-on-shelves').textContent = totalOnShelves;
+    el('report-shelf-value').textContent = '$' + totalShelfValue.toFixed(2);
+
+    // Render charts
+    renderReportCharts(reportData.charts);
+
+    // Render detail tables
+    renderReportDetailTables(reportData);
+
+  } catch (e) {
+    showToast('Failed to load report data: ' + e.message, '');
+  }
+}
+
+function renderReportCharts(charts) {
+  if (typeof Chart === 'undefined') return;
+  const palette = {
+    teal: 'rgba(74,171,171,0.85)',
+    amber: 'rgba(232,147,58,0.85)',
+    green: 'rgba(90,158,111,0.85)',
+    coral: 'rgba(224,92,69,0.85)',
+    brown: 'rgba(107,76,59,0.85)',
+    colors: ['#4AABAB','#E8933A','#5A9E6F','#E05C45','#6B4C3B','#A07860','#3D2B1F','#C4A882']
+  };
+
+  // Destroy old charts
+  Object.values(reportCharts).forEach(c => c.destroy());
+  reportCharts = {};
+
+  // Revenue Over Time
+  const revenueCtx = document.getElementById('revenue-chart')?.getContext('2d');
+  if (revenueCtx && charts.monthlyRevenue.length > 0) {
+    const labels = charts.monthlyRevenue.map(d => {
+      const [y, m] = d.month.split('-');
+      return ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(m)] + ' ' + y;
+    });
+    reportCharts.revenue = new Chart(revenueCtx, {
+      type: 'bar',
+      data: { labels, datasets: [{ label: 'Revenue', data: charts.monthlyRevenue.map(d => d.revenue), backgroundColor: palette.teal, borderRadius: 6, borderSkipped: false }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { callback: v => '$' + v } }, x: { grid: { display: false } } } }
+    });
+  } else if (revenueCtx) {
+    reportCharts.revenue = new Chart(revenueCtx, {
+      type: 'bar',
+      data: { labels: ['No data'], datasets: [{ data: [0], backgroundColor: 'rgba(0,0,0,0.08)' }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+    });
+  }
+
+  // Sales by Store
+  const storeCtx = document.getElementById('store-chart')?.getContext('2d');
+  if (storeCtx && charts.salesByStore.length > 0) {
+    reportCharts.store = new Chart(storeCtx, {
+      type: 'doughnut',
+      data: {
+        labels: charts.salesByStore.map(s => s.name),
+        datasets: [{ data: charts.salesByStore.map(s => s.revenue), backgroundColor: palette.colors.slice(0, charts.salesByStore.length), borderWidth: 0 }]
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } }, cutout: '65%' }
+    });
+  } else if (storeCtx) {
+    reportCharts.store = new Chart(storeCtx, {
+      type: 'doughnut',
+      data: { labels: ['No data yet'], datasets: [{ data: [1], backgroundColor: ['rgba(0,0,0,0.08)'], borderWidth: 0 }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, cutout: '65%' }
+    });
+  }
+
+  // Top Designs
+  const designCtx = document.getElementById('design-chart')?.getContext('2d');
+  if (designCtx && charts.topDesigns.length > 0) {
+    reportCharts.design = new Chart(designCtx, {
+      type: 'bar',
+      data: {
+        labels: charts.topDesigns.map(d => d.name.length > 20 ? d.name.substring(0,20) + '...' : d.name),
+        datasets: [{ label: 'Est. Sold', data: charts.topDesigns.map(d => d.sold), backgroundColor: palette.amber, borderRadius: 6, borderSkipped: false }]
+      },
+      options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true }, y: { grid: { display: false } } } }
+    });
+  } else if (designCtx) {
+    reportCharts.design = new Chart(designCtx, {
+      type: 'bar',
+      data: { labels: ['No data'], datasets: [{ data: [0], backgroundColor: 'rgba(0,0,0,0.08)' }] },
+      options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false } } }
+    });
+  }
+}
+
+function renderReportDetailTables(data) {
+  const container = document.getElementById('report-detail-tables');
+  if (!container) return;
+
+  // Retail sales history table
+  let retailHtml = '';
+  if (data.retailSales && data.retailSales.length > 0) {
+    const sorted = [...data.retailSales].sort((a, b) => b.month.localeCompare(a.month));
+    retailHtml = `
+      <div class="card" style="margin-bottom:1.5rem;">
+        <h3 class="section-title" style="margin-bottom:0.75rem;">Retail Sales Detail</h3>
+        <div style="overflow-x:auto;">
+          <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+            <thead>
+              <tr style="border-bottom:2px solid var(--border);">
+                <th style="text-align:left;padding:0.5rem;color:var(--brown-mid);font-size:0.75rem;text-transform:uppercase;">Month</th>
+                <th style="text-align:left;padding:0.5rem;color:var(--brown-mid);font-size:0.75rem;text-transform:uppercase;">Partner</th>
+                <th style="text-align:right;padding:0.5rem;color:var(--brown-mid);font-size:0.75rem;text-transform:uppercase;">Revenue</th>
+                <th style="text-align:right;padding:0.5rem;color:var(--brown-mid);font-size:0.75rem;text-transform:uppercase;">Cards</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${sorted.map(s => `
+                <tr style="border-bottom:1px solid var(--cream-dark);">
+                  <td style="padding:0.5rem;">${s.month}</td>
+                  <td style="padding:0.5rem;">${s.partnerName}</td>
+                  <td style="padding:0.5rem;text-align:right;color:var(--green);font-weight:600;">$${s.revenue.toFixed(2)}</td>
+                  <td style="padding:0.5rem;text-align:right;">${s.cardsSold || '—'}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  // Market sales history table
+  let marketHtml = '';
+  if (data.marketSales && data.marketSales.length > 0) {
+    const sorted = [...data.marketSales].sort((a, b) => b.date.localeCompare(a.date));
+    marketHtml = `
+      <div class="card" style="margin-bottom:1.5rem;">
+        <h3 class="section-title" style="margin-bottom:0.75rem;">Market & Direct Sales Detail</h3>
+        <div style="overflow-x:auto;">
+          <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+            <thead>
+              <tr style="border-bottom:2px solid var(--border);">
+                <th style="text-align:left;padding:0.5rem;color:var(--brown-mid);font-size:0.75rem;text-transform:uppercase;">Date</th>
+                <th style="text-align:left;padding:0.5rem;color:var(--brown-mid);font-size:0.75rem;text-transform:uppercase;">Market</th>
+                <th style="text-align:right;padding:0.5rem;color:var(--brown-mid);font-size:0.75rem;text-transform:uppercase;">Revenue</th>
+                <th style="text-align:right;padding:0.5rem;color:var(--brown-mid);font-size:0.75rem;text-transform:uppercase;">Cards</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${sorted.map(s => `
+                <tr style="border-bottom:1px solid var(--cream-dark);">
+                  <td style="padding:0.5rem;">${s.date}</td>
+                  <td style="padding:0.5rem;">${s.marketName}</td>
+                  <td style="padding:0.5rem;text-align:right;color:var(--green);font-weight:600;">$${s.revenue.toFixed(2)}</td>
+                  <td style="padding:0.5rem;text-align:right;">${s.cardsSold || '—'}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  // Partner stock summary table
+  let stockHtml = '';
+  if (data.partnerStockSummary && data.partnerStockSummary.length > 0) {
+    const sorted = [...data.partnerStockSummary].sort((a, b) => b.shelfValue - a.shelfValue);
+    stockHtml = `
+      <div class="card" style="margin-bottom:1.5rem;">
+        <h3 class="section-title" style="margin-bottom:0.75rem;">Current Stock at Partners</h3>
+        <div style="overflow-x:auto;">
+          <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+            <thead>
+              <tr style="border-bottom:2px solid var(--border);">
+                <th style="text-align:left;padding:0.5rem;color:var(--brown-mid);font-size:0.75rem;text-transform:uppercase;">Partner</th>
+                <th style="text-align:right;padding:0.5rem;color:var(--brown-mid);font-size:0.75rem;text-transform:uppercase;">Cards on Shelf</th>
+                <th style="text-align:right;padding:0.5rem;color:var(--brown-mid);font-size:0.75rem;text-transform:uppercase;">Retail Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${sorted.map(s => `
+                <tr style="border-bottom:1px solid var(--cream-dark);">
+                  <td style="padding:0.5rem;">${s.partnerName}</td>
+                  <td style="padding:0.5rem;text-align:right;font-weight:600;color:var(--teal);">${s.cardsOnShelf}</td>
+                  <td style="padding:0.5rem;text-align:right;color:var(--green);font-weight:600;">$${s.shelfValue.toFixed(2)}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  container.innerHTML = retailHtml + marketHtml + stockHtml;
 }
 
 function setQuickRange(days, btn) {
   document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  document.getElementById('date-from').value = new Date(Date.now() - days * 86400000).toLocaleDateString('en-CA');
-  document.getElementById('date-to').value   = new Date().toLocaleDateString('en-CA');
-}
-
-function initReportCharts() {
-  if (typeof Chart === 'undefined') return;
-  const palette   = { teal:'rgba(74,171,171,0.85)', amber:'rgba(232,147,58,0.85)' };
-  const revenueCtx = document.getElementById('revenue-chart')?.getContext('2d');
-  if (revenueCtx) new Chart(revenueCtx, { type:'bar', data:{ labels:['Week 1','Week 2','Week 3','Week 4'], datasets:[{label:'Revenue',data:[0,0,0,0],backgroundColor:palette.teal,borderRadius:6,borderSkipped:false}]}, options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true},x:{grid:{display:false}}}} });
-  const storeCtx   = document.getElementById('store-chart')?.getContext('2d');
-  if (storeCtx)   new Chart(storeCtx, { type:'doughnut', data:{ labels:['No data yet'], datasets:[{data:[1],backgroundColor:['rgba(0,0,0,0.08)'],borderWidth:0}]}, options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}},cutout:'65%'} });
-  const designCtx  = document.getElementById('design-chart')?.getContext('2d');
-  if (designCtx)  new Chart(designCtx, { type:'bar', data:{ labels:['No data yet'], datasets:[{label:'Units Sold',data:[0],backgroundColor:palette.amber,borderRadius:6,borderSkipped:false}]}, options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{beginAtZero:true},y:{grid:{display:false}}}} });
+  if (days === 0) {
+    document.getElementById('date-from').value = '2020-01-01';
+  } else {
+    document.getElementById('date-from').value = new Date(Date.now() - days * 86400000).toLocaleDateString('en-CA');
+  }
+  document.getElementById('date-to').value = new Date().toLocaleDateString('en-CA');
+  loadSalesReportData();
 }
 
 // ============================================================

@@ -43,6 +43,8 @@ function doGet(e) {
     case 'getConsignmentTotals': result = getConsignmentTotals(); break;
     case 'getPrintRunTotals':    result = getPrintRunTotals(); break;
     case 'getMarketSales':       result = getMarketSales(); break;
+    case 'getSalesReportData':   result = getSalesReportData(e.parameter); break;
+    case 'migrateToPartnerStock': result = migrateToPartnerStock(); break;
     default:
       result = { success: false, error: 'Invalid action: ' + action };
   }
@@ -687,64 +689,84 @@ function searchRetailers(query) {
 
 function getPartnerInventory(locationId) {
   try {
-    const inventorySheet = SPREADSHEET.getSheetByName('retailInventory');
     const locationsSheet = SPREADSHEET.getSheetByName('Locations');
-    if (!inventorySheet || !locationsSheet) {
-      return { success: false, error: 'Required sheet not found.' };
-    }
+    if (!locationsSheet) return { success: false, error: 'Locations sheet not found.' };
 
-    const allItems = getItems().items;
-    const itemNames = allItems.reduce((acc, item) => {
-      acc[parseInt(item.ItemID)] = item.DisplayName || item.Name;
-      return acc;
-    }, {});
-    const itemPrices = allItems.reduce((acc, item) => {
-      acc[parseInt(item.ItemID)] = parseFloat(item.UnitPrice) || 0;
-      return acc;
-    }, {});
-
+    // Get partner name
     const locationsData = locationsSheet.getDataRange().getValues();
     const locationsHeaders = locationsData.shift();
     const locIdIndex = locationsHeaders.indexOf('LocationID');
     const locNameIndex = locationsHeaders.indexOf('DisplayName');
-    const partnerRow = locationsData.find(row => row[locIdIndex] === locationId);
+    const partnerRow = locationsData.find(row => String(row[locIdIndex]) === String(locationId));
     const partnerName = partnerRow ? partnerRow[locNameIndex] : 'Unknown Partner';
 
-    const inventoryData = inventorySheet.getDataRange().getValues();
-    const inventoryHeaders = inventoryData.shift();
-    const invLocationIdIndex = inventoryHeaders.indexOf('LocationID');
-    const visitDateIndex = inventoryHeaders.indexOf('VisitDate');
-    const itemIdIndex = inventoryHeaders.indexOf('ItemID');
-    const endOnShelfIndex = inventoryHeaders.indexOf('EndOnShelf');
-
-    let mostRecentDate = new Date(0);
-    inventoryData.forEach(row => {
-      if (String(row[invLocationIdIndex]) === locationId) {
-        const visitDate = new Date(row[visitDateIndex]);
-        if (visitDate > mostRecentDate) mostRecentDate = visitDate;
+    // Read from PartnerStock (current-state table)
+    let stockSheet = SPREADSHEET.getSheetByName('PartnerStock');
+    if (!stockSheet) {
+      // Auto-migrate from old retailInventory if it exists
+      const oldSheet = SPREADSHEET.getSheetByName('retailInventory');
+      if (oldSheet && oldSheet.getLastRow() > 1) {
+        migrateToPartnerStock();
+        stockSheet = SPREADSHEET.getSheetByName('PartnerStock');
       }
-    });
+      if (!stockSheet) {
+        return { success: true, data: { name: partnerName, lastVisit: 'N/A', inventory: [] } };
+      }
+    }
 
-    if (mostRecentDate.getTime() === 0) {
+    const stockData = stockSheet.getDataRange().getValues();
+    if (stockData.length < 2) {
       return { success: true, data: { name: partnerName, lastVisit: 'N/A', inventory: [] } };
     }
 
-    const latestInventory = inventoryData
-      .filter(row => {
-        const rowDate = new Date(row[visitDateIndex]);
-        return String(row[invLocationIdIndex]) === locationId &&
-               rowDate.toDateString() === mostRecentDate.toDateString();
-      })
-      .map(row => ({
-        designId:   row[itemIdIndex],
-        designName: itemNames[parseInt(row[itemIdIndex])] || 'Unknown Design',
-        unitPrice:  itemPrices[parseInt(row[itemIdIndex])] || 0,
-        currentStock: row[endOnShelfIndex] || 0
-      }));
+    const headers = stockData.shift();
+    const locCol = headers.indexOf('LocationID');
+    const itemCol = headers.indexOf('ItemID');
+    const nameCol = headers.indexOf('DesignName');
+    const stockCol = headers.indexOf('CurrentStock');
+    const priceCol = headers.indexOf('UnitPrice');
+    const updatedCol = headers.indexOf('LastUpdated');
+
+    // Get fresh item names/prices from Items sheet
+    const allItems = getItems().items;
+    const itemNames = {};
+    const itemPrices = {};
+    allItems.forEach(item => {
+      itemNames[String(item.ItemID)] = item.DisplayName || item.Name;
+      itemPrices[String(item.ItemID)] = parseFloat(item.UnitPrice) || 0;
+    });
+
+    let lastUpdated = null;
+    const inventory = [];
+
+    stockData.forEach(row => {
+      if (String(row[locCol]) === String(locationId)) {
+        const itemId = String(row[itemCol]);
+        const stock = parseInt(row[stockCol]) || 0;
+        if (stock > 0) {
+          inventory.push({
+            designId: row[itemCol],
+            designName: itemNames[itemId] || row[nameCol] || 'Unknown Design',
+            unitPrice: itemPrices[itemId] || parseFloat(row[priceCol]) || 0,
+            currentStock: stock
+          });
+        }
+        // Track most recent update
+        const updated = row[updatedCol];
+        if (updated) {
+          const d = new Date(updated);
+          if (!lastUpdated || d > lastUpdated) lastUpdated = d;
+        }
+      }
+    });
 
     return {
       success: true,
-      data: { name: partnerName, lastVisit: mostRecentDate.toLocaleDateString(), inventory: latestInventory }
+      data: {
+        name: partnerName,
+        lastVisit: lastUpdated ? lastUpdated.toLocaleDateString() : 'N/A',
+        inventory: inventory
+      }
     };
   } catch (e) {
     return { success: false, error: e.message, stack: e.stack };
@@ -759,50 +781,71 @@ function getPartnerInventory(locationId) {
 function updatePartnerInventory(payload) {
   try {
     const { partnerId, partnerName, visitDate, updates } = payload;
-    const inventorySheet = SPREADSHEET.getSheetByName('retailInventory');
-    if (!inventorySheet) return { success: false, error: 'retailInventory sheet not found.' };
-
     const today = visitDate || new Date().toLocaleDateString('en-CA');
 
-    // Ensure headers exist — getPartnerInventory reads by header name
-    const firstRow = inventorySheet.getRange(1, 1, 1, inventorySheet.getLastColumn()).getValues()[0];
-    const hasHeaders = firstRow[0] === 'LocationID';
-    if (!hasHeaders || inventorySheet.getLastColumn() === 0) {
-      inventorySheet.getRange(1, 1, 1, 12).setValues([[
-        'LocationID', 'PartnerName', 'VisitDate', 'ItemID', 'DesignName',
-        'StartOnShelf', 'Added', 'Pulled', 'EndOnShelf', 'EstimatedSold', 'UnitPrice', 'EntryType'
-      ]]);
+    // ── 1. Upsert PartnerStock (current-state table) ──
+    let stockSheet = SPREADSHEET.getSheetByName('PartnerStock');
+    if (!stockSheet) {
+      stockSheet = SPREADSHEET.insertSheet('PartnerStock');
+      stockSheet.appendRow(['LocationID', 'ItemID', 'DesignName', 'CurrentStock', 'UnitPrice', 'LastUpdated']);
     }
 
-    // Remove existing rows for this partner + today before appending
-    const allData = inventorySheet.getDataRange().getValues();
-    const headers = allData[0];
-    const locCol = headers.indexOf('LocationID');
-    const dateCol = headers.indexOf('VisitDate');
-    // Delete from bottom up to avoid index shifting
-    for (let i = allData.length - 1; i >= 1; i--) {
-      const rowDate = allData[i][dateCol] instanceof Date
-        ? allData[i][dateCol].toLocaleDateString('en-CA')
-        : String(allData[i][dateCol]);
-      if (String(allData[i][locCol]) === String(partnerId) && rowDate === today) {
-        inventorySheet.deleteRow(i + 1);
+    const stockData = stockSheet.getDataRange().getValues();
+    const stockHeaders = stockData[0];
+    const sLocCol = stockHeaders.indexOf('LocationID');
+    const sItemCol = stockHeaders.indexOf('ItemID');
+    const sNameCol = stockHeaders.indexOf('DesignName');
+    const sStockCol = stockHeaders.indexOf('CurrentStock');
+    const sPriceCol = stockHeaders.indexOf('UnitPrice');
+    const sUpdatedCol = stockHeaders.indexOf('LastUpdated');
+
+    // Build index of existing rows: key = "partnerId|itemId" → row number
+    const existingRows = {};
+    for (let i = 1; i < stockData.length; i++) {
+      const key = String(stockData[i][sLocCol]) + '|' + String(stockData[i][sItemCol]);
+      existingRows[key] = i + 1; // 1-based sheet row
+    }
+
+    // Track rows to delete (stock went to 0)
+    const rowsToDelete = [];
+
+    updates.forEach(u => {
+      const key = String(partnerId) + '|' + String(u.designId);
+      const existingRow = existingRows[key];
+
+      if (u.newStock <= 0) {
+        // Remove from current stock if exists
+        if (existingRow) rowsToDelete.push(existingRow);
+      } else if (existingRow) {
+        // Update existing row
+        stockSheet.getRange(existingRow, sNameCol + 1).setValue(u.designName);
+        stockSheet.getRange(existingRow, sStockCol + 1).setValue(u.newStock);
+        stockSheet.getRange(existingRow, sPriceCol + 1).setValue(u.unitPrice || 0);
+        stockSheet.getRange(existingRow, sUpdatedCol + 1).setValue(today);
+      } else {
+        // Insert new row
+        stockSheet.appendRow([partnerId, u.designId, u.designName, u.newStock, u.unitPrice || 0, today]);
       }
+    });
+
+    // Delete zero-stock rows (bottom-up to avoid index shifting)
+    rowsToDelete.sort((a, b) => b - a).forEach(row => stockSheet.deleteRow(row));
+
+    // ── 2. Append visit log to retailInventory (audit trail) ──
+    let logSheet = SPREADSHEET.getSheetByName('retailInventory');
+    if (!logSheet) {
+      logSheet = SPREADSHEET.insertSheet('retailInventory');
+      logSheet.appendRow([
+        'LocationID', 'PartnerName', 'VisitDate', 'ItemID', 'DesignName',
+        'StartOnShelf', 'Added', 'Pulled', 'EndOnShelf', 'EstimatedSold', 'UnitPrice', 'EntryType'
+      ]);
     }
 
     updates.forEach(u => {
-      inventorySheet.appendRow([
-        partnerId,        // LocationID
-        partnerName,      // PartnerName
-        today,            // VisitDate
-        u.designId,       // ItemID
-        u.designName,     // DesignName
-        u.previousStock,  // StartOnShelf
-        u.added || 0,     // Added
-        u.pulled || 0,    // Pulled
-        u.newStock,       // EndOnShelf
-        u.estimatedSold || 0,
-        u.unitPrice || 0,
-        u.isNew ? 'New' : 'Update',
+      logSheet.appendRow([
+        partnerId, partnerName, today, u.designId, u.designName,
+        u.previousStock, u.added || 0, u.pulled || 0, u.newStock,
+        u.estimatedSold || 0, u.unitPrice || 0, u.isNew ? 'New' : 'Update'
       ]);
     });
 
@@ -1706,35 +1749,22 @@ function getPrintRunTotals() {
 
 function getConsignmentTotals() {
   try {
-    const sheet = SPREADSHEET.getSheetByName('retailInventory');
-    if (!sheet) return { success: true, totals: {} };
+    const sheet = SPREADSHEET.getSheetByName('PartnerStock');
+    if (!sheet) return { success: true, totals: {}, grandTotal: 0 };
 
     const data = sheet.getDataRange().getValues();
-    if (data.length < 2) return { success: true, totals: {} };
+    if (data.length < 2) return { success: true, totals: {}, grandTotal: 0 };
 
     const headers = data.shift();
-    const locIdx = headers.indexOf('LocationID');
-    const dateIdx = headers.indexOf('VisitDate');
     const itemIdx = headers.indexOf('ItemID');
-    const shelfIdx = headers.indexOf('EndOnShelf');
+    const stockIdx = headers.indexOf('CurrentStock');
 
-    // Find the most recent visit date per partner
-    const latestVisit = {};
-    data.forEach(row => {
-      const loc = String(row[locIdx]);
-      const d = new Date(row[dateIdx]);
-      if (!latestVisit[loc] || d > latestVisit[loc]) latestVisit[loc] = d;
-    });
-
-    // Sum EndOnShelf for each item across all partners (latest visit only)
     const totals = {};
     let grandTotal = 0;
     data.forEach(row => {
-      const loc = String(row[locIdx]);
-      const d = new Date(row[dateIdx]);
-      if (d.toDateString() === latestVisit[loc].toDateString()) {
-        const itemId = String(row[itemIdx]);
-        const onShelf = parseInt(row[shelfIdx]) || 0;
+      const itemId = String(row[itemIdx]);
+      const onShelf = parseInt(row[stockIdx]) || 0;
+      if (onShelf > 0) {
         totals[itemId] = (totals[itemId] || 0) + onShelf;
         grandTotal += onShelf;
       }
@@ -1801,6 +1831,304 @@ function updateItemStatus(payload) {
       }
     }
     return { success: false, error: 'Item not found' };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+
+// =============================================================================
+// MIGRATE retailInventory → PartnerStock (run once)
+// =============================================================================
+
+function migrateToPartnerStock() {
+  try {
+    const oldSheet = SPREADSHEET.getSheetByName('retailInventory');
+    if (!oldSheet) return { success: true, message: 'No retailInventory sheet to migrate.' };
+
+    // Create PartnerStock if it doesn't exist
+    let stockSheet = SPREADSHEET.getSheetByName('PartnerStock');
+    if (!stockSheet) {
+      stockSheet = SPREADSHEET.insertSheet('PartnerStock');
+      stockSheet.appendRow(['LocationID', 'ItemID', 'DesignName', 'CurrentStock', 'UnitPrice', 'LastUpdated']);
+    }
+
+    const oldData = oldSheet.getDataRange().getValues();
+    if (oldData.length < 2) return { success: true, message: 'No data to migrate.' };
+
+    const headers = oldData.shift();
+    const locIdx = headers.indexOf('LocationID');
+    const dateIdx = headers.indexOf('VisitDate');
+    const itemIdx = headers.indexOf('ItemID');
+    const nameIdx = headers.indexOf('DesignName');
+    const shelfIdx = headers.indexOf('EndOnShelf');
+    const priceIdx = headers.indexOf('UnitPrice');
+
+    // Find most recent visit date per partner
+    const latestVisit = {};
+    oldData.forEach(row => {
+      const loc = String(row[locIdx]);
+      const d = new Date(row[dateIdx]);
+      if (!latestVisit[loc] || d > latestVisit[loc]) latestVisit[loc] = d;
+    });
+
+    // Extract latest snapshot per partner+item
+    const stockMap = {}; // key: "loc|item" → {name, stock, price, date}
+    oldData.forEach(row => {
+      const loc = String(row[locIdx]);
+      const d = new Date(row[dateIdx]);
+      if (d.toDateString() === latestVisit[loc].toDateString()) {
+        const itemId = String(row[itemIdx]);
+        const key = loc + '|' + itemId;
+        const stock = parseInt(row[shelfIdx]) || 0;
+        if (stock > 0) {
+          stockMap[key] = {
+            locationId: loc,
+            itemId: row[itemIdx],
+            designName: row[nameIdx] || '',
+            currentStock: stock,
+            unitPrice: parseFloat(row[priceIdx]) || 0,
+            lastUpdated: d.toLocaleDateString('en-CA')
+          };
+        }
+      }
+    });
+
+    // Clear existing PartnerStock data (keep headers)
+    if (stockSheet.getLastRow() > 1) {
+      stockSheet.getRange(2, 1, stockSheet.getLastRow() - 1, stockSheet.getLastColumn()).clearContent();
+    }
+
+    // Write migrated data
+    const entries = Object.values(stockMap);
+    entries.forEach(e => {
+      stockSheet.appendRow([e.locationId, e.itemId, e.designName, e.currentStock, e.unitPrice, e.lastUpdated]);
+    });
+
+    return { success: true, message: 'Migrated ' + entries.length + ' stock entries to PartnerStock.' };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+
+// =============================================================================
+// SALES REPORT DATA — aggregated data for the Sales Reports page
+// =============================================================================
+
+function getSalesReportData(params) {
+  try {
+    const partnerId = params ? params.partnerId : null;
+    const dateFrom = params && params.dateFrom ? params.dateFrom : null;
+    const dateTo = params && params.dateTo ? params.dateTo : null;
+
+    // ── Retail Sales ──
+    let retailSales = [];
+    const retailSheet = SPREADSHEET.getSheetByName('RetailSales');
+    if (retailSheet) {
+      const rData = retailSheet.getDataRange().getValues();
+      if (rData.length > 1) {
+        const rHeaders = rData.shift();
+        const rPIdx = rHeaders.indexOf('PartnerID');
+        const rNameIdx = rHeaders.indexOf('PartnerName');
+        const rMonthIdx = rHeaders.indexOf('Month');
+        const rActualIdx = rHeaders.indexOf('ActualSales');
+        const rCardsIdx = rHeaders.indexOf('CardsSold');
+
+        rData.forEach(row => {
+          if (partnerId && String(row[rPIdx]) !== String(partnerId)) return;
+          const month = String(row[rMonthIdx]);
+          if (dateFrom && month < dateFrom.substring(0, 7)) return;
+          if (dateTo && month > dateTo.substring(0, 7)) return;
+          retailSales.push({
+            partnerId: String(row[rPIdx]),
+            partnerName: row[rNameIdx] || '',
+            month: month,
+            revenue: parseFloat(row[rActualIdx]) || 0,
+            cardsSold: parseInt(row[rCardsIdx]) || 0
+          });
+        });
+      }
+    }
+
+    // ── Market Sales ──
+    let marketSales = [];
+    if (!partnerId) { // market sales aren't per-partner
+      const mktSheet = SPREADSHEET.getSheetByName('MarketSales');
+      if (mktSheet) {
+        const mData = mktSheet.getDataRange().getValues();
+        if (mData.length > 1) {
+          const mHeaders = mData.shift();
+          const mDateIdx = mHeaders.indexOf('Date');
+          const mNameIdx = mHeaders.indexOf('MarketName');
+          const mTotalIdx = mHeaders.indexOf('TotalSales');
+          const mMisprintIdx = mHeaders.indexOf('MisprintSales');
+          const mCardsIdx = mHeaders.indexOf('CardsSold');
+
+          mData.forEach(row => {
+            const saleDate = row[mDateIdx] instanceof Date
+              ? row[mDateIdx].toLocaleDateString('en-CA')
+              : String(row[mDateIdx]);
+            if (dateFrom && saleDate < dateFrom) return;
+            if (dateTo && saleDate > dateTo) return;
+            marketSales.push({
+              date: saleDate,
+              marketName: row[mNameIdx] || '',
+              revenue: parseFloat(row[mTotalIdx]) || 0,
+              misprintRevenue: parseFloat(row[mMisprintIdx]) || 0,
+              cardsSold: parseInt(row[mCardsIdx]) || 0
+            });
+          });
+        }
+      }
+    }
+
+    // ── Consignment stock data (per partner) ──
+    let partnerStockSummary = [];
+    const stockSheet = SPREADSHEET.getSheetByName('PartnerStock');
+    if (stockSheet) {
+      const sData = stockSheet.getDataRange().getValues();
+      if (sData.length > 1) {
+        const sHeaders = sData.shift();
+        const sLocIdx = sHeaders.indexOf('LocationID');
+        const sItemIdx = sHeaders.indexOf('ItemID');
+        const sNameIdx = sHeaders.indexOf('DesignName');
+        const sStockIdx = sHeaders.indexOf('CurrentStock');
+        const sPriceIdx = sHeaders.indexOf('UnitPrice');
+
+        const byPartner = {};
+        sData.forEach(row => {
+          if (partnerId && String(row[sLocIdx]) !== String(partnerId)) return;
+          const loc = String(row[sLocIdx]);
+          if (!byPartner[loc]) byPartner[loc] = { totalCards: 0, totalValue: 0 };
+          const stock = parseInt(row[sStockIdx]) || 0;
+          const price = parseFloat(row[sPriceIdx]) || 0;
+          byPartner[loc].totalCards += stock;
+          byPartner[loc].totalValue += stock * price;
+        });
+        // Get partner names
+        const locSheet = SPREADSHEET.getSheetByName('Locations');
+        const partnerNames = {};
+        if (locSheet) {
+          const lData = locSheet.getDataRange().getValues();
+          const lHeaders = lData.shift();
+          const lIdIdx = lHeaders.indexOf('LocationID');
+          const lNameIdx = lHeaders.indexOf('DisplayName');
+          lData.forEach(row => { partnerNames[String(row[lIdIdx])] = row[lNameIdx]; });
+        }
+
+        Object.entries(byPartner).forEach(([loc, data]) => {
+          partnerStockSummary.push({
+            partnerId: loc,
+            partnerName: partnerNames[loc] || loc,
+            cardsOnShelf: data.totalCards,
+            shelfValue: data.totalValue
+          });
+        });
+      }
+    }
+
+    // ── Aggregate stats ──
+    let totalRetailRevenue = 0, totalRetailCards = 0;
+    retailSales.forEach(s => { totalRetailRevenue += s.revenue; totalRetailCards += s.cardsSold; });
+
+    let totalMarketRevenue = 0, totalMarketCards = 0;
+    marketSales.forEach(s => { totalMarketRevenue += s.revenue; totalMarketCards += s.cardsSold; });
+
+    // Top store by revenue
+    const storeRevenue = {};
+    retailSales.forEach(s => {
+      storeRevenue[s.partnerName] = (storeRevenue[s.partnerName] || 0) + s.revenue;
+    });
+    const topStore = Object.entries(storeRevenue).sort((a, b) => b[1] - a[1])[0];
+
+    // Revenue by month (for chart)
+    const monthlyRevenue = {};
+    retailSales.forEach(s => {
+      monthlyRevenue[s.month] = (monthlyRevenue[s.month] || 0) + s.revenue;
+    });
+    marketSales.forEach(s => {
+      const month = s.date ? s.date.substring(0, 7) : '';
+      if (month) monthlyRevenue[month] = (monthlyRevenue[month] || 0) + s.revenue;
+    });
+
+    // Sales by store (for chart)
+    const salesByStore = Object.entries(storeRevenue)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, revenue]) => ({ name, revenue }));
+
+    // Top designs sold (from visit log estimated sold)
+    let designSales = {};
+    const logSheet = SPREADSHEET.getSheetByName('retailInventory');
+    if (logSheet) {
+      const logData = logSheet.getDataRange().getValues();
+      if (logData.length > 1) {
+        const logHeaders = logData.shift();
+        const logNameIdx = logHeaders.indexOf('DesignName');
+        const logSoldIdx = logHeaders.indexOf('EstimatedSold');
+        const logDateIdx = logHeaders.indexOf('VisitDate');
+
+        logData.forEach(row => {
+          const saleDate = row[logDateIdx] instanceof Date
+            ? row[logDateIdx].toLocaleDateString('en-CA')
+            : String(row[logDateIdx]);
+          if (dateFrom && saleDate < dateFrom) return;
+          if (dateTo && saleDate > dateTo) return;
+          const name = row[logNameIdx] || '';
+          const sold = parseInt(row[logSoldIdx]) || 0;
+          if (name && sold > 0) {
+            designSales[name] = (designSales[name] || 0) + sold;
+          }
+        });
+      }
+    }
+    const topDesigns = Object.entries(designSales)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([name, sold]) => ({ name, sold }));
+
+    // Partner list for dropdown
+    let partnerList = [];
+    const locSheetForList = SPREADSHEET.getSheetByName('Locations');
+    if (locSheetForList) {
+      const lData = locSheetForList.getDataRange().getValues();
+      const lHeaders = lData.shift();
+      const lIdIdx = lHeaders.indexOf('LocationID');
+      const lNameIdx = lHeaders.indexOf('DisplayName');
+      const lTypeIdx = lHeaders.indexOf('LocationType');
+      const lActiveIdx = lHeaders.indexOf('Active');
+      lData.forEach(row => {
+        if (row[lTypeIdx] === 'retail_partner' && (row[lActiveIdx] === true || String(row[lActiveIdx]).toUpperCase() === 'TRUE')) {
+          partnerList.push({ id: String(row[lIdIdx]), name: row[lNameIdx] });
+        }
+      });
+    }
+
+    return {
+      success: true,
+      data: {
+        retailSales,
+        marketSales,
+        partnerStockSummary,
+        topDesigns,
+        partnerList,
+        stats: {
+          totalRevenue: totalRetailRevenue + totalMarketRevenue,
+          totalRetailRevenue,
+          totalMarketRevenue,
+          totalCardsSold: totalRetailCards + totalMarketCards,
+          topStore: topStore ? topStore[0] : '—',
+          topDesign: topDesigns.length > 0 ? topDesigns[0].name : '—'
+        },
+        charts: {
+          monthlyRevenue: Object.entries(monthlyRevenue)
+            .sort((a, b) => a[0].localeCompare(b[0]))
+            .map(([month, revenue]) => ({ month, revenue })),
+          salesByStore,
+          topDesigns
+        }
+      }
+    };
   } catch (e) {
     return { success: false, error: e.message };
   }
