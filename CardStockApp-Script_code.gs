@@ -867,6 +867,34 @@ function updatePartnerInventory(payload) {
       logSheet.appendRow(logRow);
     });
 
+    // ── 3. Update Items.StartingAtHome (home stock moves with store stock) ──
+    const itemsSheet = SPREADSHEET.getSheetByName('Items');
+    if (itemsSheet) {
+      const itemsData = itemsSheet.getDataRange().getValues();
+      const itemsHeaders = itemsData[0];
+      const iIdCol = itemsHeaders.indexOf('ItemID');
+      const iStockCol = itemsHeaders.indexOf('StartingAtHome');
+
+      if (iIdCol !== -1 && iStockCol !== -1) {
+        updates.forEach(u => {
+          const added = parseInt(u.added) || 0;
+          const pulled = parseInt(u.pulled) || 0;
+          if (added === 0 && pulled === 0) return;
+
+          for (let i = 1; i < itemsData.length; i++) {
+            if (String(itemsData[i][iIdCol]) === String(u.designId)) {
+              const current = parseInt(itemsData[i][iStockCol]) || 0;
+              // Added to store = leaves home; Pulled from store = returns home
+              const newHome = Math.max(0, current - added + pulled);
+              itemsSheet.getRange(i + 1, iStockCol + 1).setValue(newHome);
+              itemsData[i][iStockCol] = newHome; // update local cache for subsequent items
+              break;
+            }
+          }
+        });
+      }
+    }
+
     return { success: true };
   } catch (e) {
     return { success: false, error: e.message };
