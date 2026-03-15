@@ -37,6 +37,77 @@
     --transition: all 0.2s ease;
 }
 
+/* --- Splash Screen --- */
+.splash-screen {
+    position: fixed;
+    inset: 0;
+    background: var(--cream);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.5s ease;
+}
+
+.splash-screen.fade-out {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.splash-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+
+.splash-dog {
+    width: 120px;
+    height: 120px;
+    object-fit: contain;
+    animation: splashGrow 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes splashGrow {
+    from { opacity: 0; transform: scale(0.3); }
+    to   { opacity: 1; transform: scale(1); }
+}
+
+.splash-text {
+    animation: splashFadeUp 0.5s ease 0.35s both;
+}
+
+@keyframes splashFadeUp {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.splash-title {
+    font-family: var(--font-display);
+    font-size: 2rem;
+    color: var(--brown);
+    line-height: 1.1;
+    margin-top: 0.75rem;
+}
+
+.splash-subtitle {
+    font-family: var(--font-body);
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--brown-mid);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-top: 0.2rem;
+}
+
+.splash-tagline {
+    font-family: var(--font-body);
+    font-size: 0.75rem;
+    color: var(--brown-light);
+    margin-top: 0.75rem;
+    font-style: italic;
+}
+
 /* --- Reset & Base --- */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html { font-size: 16px; -webkit-text-size-adjust: 100%; }

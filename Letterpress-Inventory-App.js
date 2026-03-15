@@ -1,16 +1,38 @@
 // ============================================================
-// PASSWORD PROTECTION
+// SPLASH SCREEN + PASSWORD PROTECTION
 // ============================================================
 (function() {
   const CORRECT_PASSWORD = 'iL0veHemr!4ever';
+  const splash = document.getElementById('splash-screen');
   const stored = sessionStorage.getItem('pba_auth');
-  if (stored !== CORRECT_PASSWORD) {
+  const alreadyAuthed = stored === CORRECT_PASSWORD;
+
+  function dismissSplash() {
+    if (!splash) return;
+    splash.classList.add('fade-out');
+    setTimeout(() => splash.remove(), 500);
+  }
+
+  function promptPassword() {
     const input = prompt('🔐 Prints by Angel — Enter password:');
     if (input !== CORRECT_PASSWORD) {
+      dismissSplash();
       document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:Georgia,serif;color:#3D2B1F;background:#F5F0E4;font-size:1.1rem;">❌ Access denied.</div>';
-      return;
+      return false;
     }
     sessionStorage.setItem('pba_auth', CORRECT_PASSWORD);
+    return true;
+  }
+
+  if (alreadyAuthed) {
+    // Already logged in — show splash briefly then dismiss
+    setTimeout(dismissSplash, 1200);
+  } else {
+    // Show splash, then prompt password after animation finishes
+    setTimeout(() => {
+      if (!promptPassword()) return;
+      dismissSplash();
+    }, 1400);
   }
 })();
 // ============================================================
@@ -1305,7 +1327,7 @@ async function renderNewItemDesignPage() {
     <div class="page-header">
       <div><h1 class="page-title">Add New Design</h1><p class="page-subtitle">Register a new card or print design</p></div>
     </div>
-    <div class="form-page-container"><div class="form-section">${dogLoading('Loading...')}</div></div>`;
+    <div class="form-page-container">${dogLoading('Loading...')}</div>`;
 
   try {
     const [idRes, tagsRes, typesRes] = await Promise.all([
@@ -1534,7 +1556,7 @@ async function renderPrintStockUpdaterPage() {
     <div class="page-header">
       <div><h1 class="page-title">Print Stock Update</h1><p class="page-subtitle">Log a new print run and update stock</p></div>
     </div>
-    <div class="form-page-container"><div class="form-section">${dogLoading('Loading designs...')}</div></div>`;
+    <div class="form-page-container">${dogLoading('Loading designs...')}</div>`;
 
   try {
     if (!itemsCache) {
@@ -1713,8 +1735,8 @@ async function loadPartnerInventoryView(partnerId, partnerMeta) {
         <h3 class="section-title" style="margin:0;">Update Inventory</h3>
         <div style="display:flex;gap:0.5rem;align-items:center;">
           <div class="view-toggle" title="Card size">
-            <button class="view-toggle-btn" onclick="setRetailCardSize('compact',this)">▬</button>
-            <button class="view-toggle-btn active" onclick="setRetailCardSize('comfy',this)">≡</button>
+            <button class="view-toggle-btn ${retailCardSize === 'compact' ? 'active' : ''}" onclick="setRetailCardSize('compact',this)">▬</button>
+            <button class="view-toggle-btn ${retailCardSize === 'comfy' ? 'active' : ''}" onclick="setRetailCardSize('comfy',this)">≡</button>
           </div>
           <button class="btn btn-secondary btn-sm" onclick="openAddDesignToPartnerModal()">✚ Add Design to Store</button>
           <button class="btn btn-primary" onclick="savePartnerInventory()">💾 Save All Updates</button>
@@ -1814,7 +1836,7 @@ async function loadSalesHistory(partnerId) {
 }
 
 let retailSummaryExpanded = false;
-let retailCardSize = 'comfy';
+let retailCardSize = window.innerWidth <= 768 ? 'compact' : 'comfy';
 
 function toggleSummaryView() {
   retailSummaryExpanded = !retailSummaryExpanded;
@@ -3562,8 +3584,8 @@ async function renderInventoryAuditorPage() {
         <input type="text" id="audit-search" placeholder="Search designs...">
       </div>
       <div class="view-toggle" title="Card size">
-        <button class="view-toggle-btn active" id="audit-size-comfy"   onclick="setAuditSize('comfy',this)">▬</button>
-        <button class="view-toggle-btn"         id="audit-size-compact" onclick="setAuditSize('compact',this)">≡</button>
+        <button class="view-toggle-btn ${auditSizeMode === 'comfy' ? 'active' : ''}" id="audit-size-comfy"   onclick="setAuditSize('comfy',this)">▬</button>
+        <button class="view-toggle-btn ${auditSizeMode === 'compact' ? 'active' : ''}"         id="audit-size-compact" onclick="setAuditSize('compact',this)">≡</button>
         <button class="view-toggle-btn"         id="audit-size-title"   onclick="setAuditSize('title',this)">☰</button>
       </div>
       <button class="btn btn-primary btn-sm" onclick="saveAudit()" style="margin-left:auto;">✓ Save Updates</button>
@@ -3591,7 +3613,7 @@ async function renderInventoryAuditorPage() {
   }
 }
 
-let auditSizeMode = 'comfy';
+let auditSizeMode = window.innerWidth <= 1024 ? 'compact' : 'comfy';
 
 function setAuditSize(mode, btn) {
   auditSizeMode = mode;
