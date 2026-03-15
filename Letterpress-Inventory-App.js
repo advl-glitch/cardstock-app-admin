@@ -917,7 +917,7 @@ async function openItemDetail(itemId) {
       <button class="btn btn-primary" onclick="openEditItemModal('${item.ItemID}')">✏️ Edit Design</button>
       <button class="btn btn-secondary" onclick="closeDetailPanel();document.querySelector('[data-page=print-stock-updater]').click()">🖨️ Log Print Run</button>
     </div>
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border);">
+    <div style="position:sticky;bottom:0;background:var(--white);display:flex;justify-content:space-between;align-items:center;padding:0.75rem 0;margin-top:1.5rem;border-top:1px solid var(--border);">
       <button class="btn btn-secondary btn-sm" onclick="navigateItemDetail('${item.ItemID}', -1)">← Prev</button>
       <span style="font-size:0.75rem;color:var(--brown-light);">Browse designs</span>
       <button class="btn btn-secondary btn-sm" onclick="navigateItemDetail('${item.ItemID}', 1)">Next →</button>
