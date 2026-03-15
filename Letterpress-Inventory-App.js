@@ -2073,8 +2073,8 @@ function openAddDesignToPartnerModal() {
         <input class="field-input" type="number" id="add-partner-price" placeholder="Auto-filled" step="0.01" min="0" readonly style="background:var(--cream);color:var(--brown-mid);">
       </div>
     </div>
-    <button class="btn btn-primary" style="width:100%;margin-top:0.5rem" onclick="confirmAddDesignToPartner()">✚ Add to Inventory</button>
-    <div id="add-partner-status" class="form-status"></div>`);
+    <div id="add-partner-design-btn-wrap"><button class="btn btn-primary" style="width:100%;margin-top:0.5rem" onclick="confirmAddDesignToPartner()">✚ Add to Inventory</button></div>
+    <div id="add-partner-design-status" class="form-status"></div>`);
 
   document.getElementById('add-partner-design-select')?.addEventListener('change', (e) => {
     const opt = e.target.selectedOptions[0];
@@ -2088,7 +2088,8 @@ async function confirmAddDesignToPartner() {
   const designId = selectEl?.value;
   const qty      = parseInt(document.getElementById('add-partner-qty')?.value);
   const price    = parseFloat(document.getElementById('add-partner-price')?.value) || 0;
-  const status   = document.getElementById('add-partner-status');
+  const status   = document.getElementById('add-partner-design-status');
+  const btnWrap  = document.getElementById('add-partner-design-btn-wrap');
 
   if (!designId || isNaN(qty) || qty < 1) {
     status.className = 'form-status error'; status.textContent = '❌ Please select a design and enter a quantity.';
@@ -2100,6 +2101,7 @@ async function confirmAddDesignToPartner() {
   const unitPrice = price || item?.UnitPrice || 0;
 
   // Show saving state in modal
+  if (btnWrap) btnWrap.style.display = 'none';
   status.className = 'form-status loading'; status.textContent = 'Adding to store...';
 
   // Auto-save just this new design to the system
@@ -2139,12 +2141,12 @@ async function confirmAddDesignToPartner() {
       isNew: false, // already persisted
     });
 
-    itemsCache = null; // refresh home stock on next load
     closeModal();
     renderInventoryCards();
     showToast(`${designName} added and saved!`, 'success');
   } catch (e) {
     status.className = 'form-status error'; status.textContent = '❌ ' + e.message;
+    if (btnWrap) btnWrap.style.display = '';
   }
 }
 
