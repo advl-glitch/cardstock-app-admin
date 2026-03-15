@@ -1691,8 +1691,9 @@ async function loadPartnerInventoryView(partnerId, partnerMeta) {
           ${skuCodesHtml}
         </div>
       </div>
+      <div id="stock-summary-strip" class="card" style="padding:0.75rem 1rem;margin-bottom:1.25rem;"></div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;flex-wrap:wrap;gap:0.5rem;">
-        <h3 class="section-title" style="margin:0;">Inventory on Hand</h3>
+        <h3 class="section-title" style="margin:0;">Update Inventory</h3>
         <div style="display:flex;gap:0.5rem;">
           <button class="btn btn-secondary btn-sm" onclick="openAddDesignToPartnerModal()">✚ Add Design to Store</button>
           <button class="btn btn-primary" onclick="savePartnerInventory()">💾 Save All Updates</button>
@@ -1791,9 +1792,43 @@ async function loadSalesHistory(partnerId) {
   }
 }
 
+function renderStockSummary() {
+  const strip = document.getElementById('stock-summary-strip');
+  if (!strip) return;
+
+  if (retailInventoryState.length === 0) {
+    strip.style.display = 'none';
+    return;
+  }
+  strip.style.display = '';
+
+  const totalCards = retailInventoryState.reduce((sum, item) => {
+    return sum + Math.max(0, (item.currentStock || 0) + (item.added || 0) - (item.pulled || 0));
+  }, 0);
+
+  strip.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem;">
+      <span style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--brown-mid);font-weight:700;">${retailInventoryState.length} Designs on Shelf</span>
+      <span style="font-size:0.8rem;font-weight:600;color:var(--teal);">${totalCards} total cards</span>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:0.35rem;">
+      ${retailInventoryState.map(item => {
+        const stock = Math.max(0, (item.currentStock || 0) + (item.added || 0) - (item.pulled || 0));
+        const shortName = (item.designName || '').replace(/^\d+\s*—\s*/, '');
+        const displayName = shortName.length > 22 ? shortName.substring(0, 20) + '...' : shortName;
+        return `<span style="display:inline-flex;align-items:center;gap:0.3rem;background:var(--cream);border:1px solid var(--border);border-radius:100px;padding:0.2rem 0.6rem 0.2rem 0.5rem;font-size:0.75rem;color:var(--brown-mid);white-space:nowrap;">
+          <span style="background:var(--teal);color:white;border-radius:50%;width:1.2rem;height:1.2rem;display:inline-flex;align-items:center;justify-content:center;font-size:0.65rem;font-weight:700;flex-shrink:0;">${stock}</span>
+          ${displayName}
+        </span>`;
+      }).join('')}
+    </div>`;
+}
+
 function renderInventoryCards() {
   const container = document.getElementById('inventory-list-container');
   if (!container) return;
+
+  renderStockSummary();
 
   if (retailInventoryState.length === 0) {
     container.innerHTML = `<div class="dog-state">${dogEmpty('No inventory recorded for this partner yet.')}<br><button class="btn btn-primary" style="margin-top:1rem" onclick="openAddDesignToPartnerModal()">✚ Add First Design</button></div>`;
@@ -1803,47 +1838,40 @@ function renderInventoryCards() {
   container.innerHTML = retailInventoryState.map((item, realIdx) => {
     const finalStock = Math.max(0, (item.currentStock || 0) + (item.added || 0) - (item.pulled || 0));
     const pendingRemoval = !item.isNew && finalStock === 0;
-    const estSold    = item.isNew ? 0 : Math.max(0, item.previousStock - item.currentStock - item.pulled + item.added);
-    const estRevenue = (estSold * Number(item.unitPrice || 0)).toFixed(2);
+    const shortName = (item.designName || '').replace(/^\d+\s*—\s*/, '');
     return `
       <div class="inventory-card ${item.isNew ? 'inventory-card-new' : ''} ${pendingRemoval ? 'inventory-card-pending-removal' : ''}">
-        <div class="inventory-card-header">
-          <h4 class="design-name">${item.designName}${item.designId ? ` <span style="color:var(--brown-light);font-weight:400;font-size:0.8rem;">(#${item.designId})</span>` : ''}</h4>
-          <span class="stock-badge"><span class="current-stock">${item.currentStock}</span> on shelf</span>
+        <div class="inventory-card-info">
+          <div class="design-name">${shortName}</div>
+          <div class="design-id">#${item.designId} · $${Number(item.unitPrice || 0).toFixed(2)}</div>
+          ${pendingRemoval ? `<div class="pending-removal-banner">⚠️ Will be removed on save</div>` : ''}
         </div>
-        ${!item.isNew ? `
-        <div class="inventory-est-row">
-          <span class="inventory-est-label">Prev. stock: <strong>${item.previousStock}</strong></span>
-          <span class="inventory-est-label">Est. sold: <strong>${estSold > 0 ? estSold : '—'}</strong></span>
-          <span class="inventory-est-label">Est. revenue: <strong>${estSold > 0 ? '$' + estRevenue : '—'}</strong></span>
-        </div>` : ''}
-        ${pendingRemoval ? `<div class="pending-removal-banner">⚠️ Stock is 0 — this design will be removed from this store when you save.</div>` : ''}
+        <div class="inventory-stock-col">
+          <div class="inventory-stock-val current-stock" style="color:var(--teal);">${item.currentStock}</div>
+          <div class="inventory-stock-label">On Shelf</div>
+        </div>
         <div class="inventory-actions">
           <div class="action-field">
-            <label>Update Stock (New Total)</label>
-            <input type="number" class="action-input" placeholder="New total" min="0"
+            <label>Stock</label>
+            <input type="number" class="action-input" placeholder="#" min="0"
               value="${item.currentStock || ''}"
               oninput="updateInventoryField(${realIdx}, 'currentStock', this.value)">
           </div>
           <div class="action-field">
-            <label>Add Cards (+)</label>
-            <input type="number" class="action-input" placeholder="+ qty" min="0"
+            <label>Add +</label>
+            <input type="number" class="action-input" placeholder="+" min="0"
               value="${item.added || ''}"
               oninput="updateInventoryField(${realIdx}, 'added', this.value)">
           </div>
           <div class="action-field">
-            <label>Pull Cards (−)</label>
-            <input type="number" class="action-input" placeholder="− qty" min="0"
+            <label>Pull −</label>
+            <input type="number" class="action-input" placeholder="−" min="0"
               value="${item.pulled || ''}"
               oninput="updateInventoryField(${realIdx}, 'pulled', this.value)">
           </div>
         </div>
       </div>`;
   }).join('');
-
-  if (retailInventoryState.length === 0) {
-    container.innerHTML = `<div class="dog-state">${dogEmpty('No inventory recorded for this partner yet.')}<br><button class="btn btn-primary" style="margin-top:1rem" onclick="openAddDesignToPartnerModal()">✚ Add First Design</button></div>`;
-  }
 }
 
 function updateInventoryField(idx, field, value) {
@@ -1875,17 +1903,8 @@ function updateInventoryField(idx, field, value) {
     cards[idx].querySelector('.pending-removal-banner')?.remove();
   }
 
-  // Update estimated sold/revenue display
-  if (!item.isNew) {
-    const estSold = Math.max(0, item.previousStock - item.currentStock - item.pulled + item.added);
-    const estRevenue = (estSold * Number(item.unitPrice || 0)).toFixed(2);
-    const estRow = cards[idx].querySelector('.inventory-est-row');
-    if (estRow) {
-      const labels = estRow.querySelectorAll('.inventory-est-label strong');
-      if (labels[1]) labels[1].textContent = estSold > 0 ? estSold : '—';
-      if (labels[2]) labels[2].textContent = estSold > 0 ? '$' + estRevenue : '—';
-    }
-  }
+  // Update summary strip
+  renderStockSummary();
 }
 
 async function savePartnerInventory() {

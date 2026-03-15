@@ -688,19 +688,21 @@ body {
 .rank-plain  { background: var(--cream-dark); color: var(--brown-mid); }
 
 /* Inventory cards */
-.inventory-card { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.25rem; margin-bottom: 0.75rem; box-shadow: var(--shadow-sm); }
+.inventory-card { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1rem 1.25rem; margin-bottom: 0.5rem; box-shadow: var(--shadow-sm); display: flex; align-items: center; gap: 1rem; }
 .inventory-card-new { border-color: var(--teal); border-left: 4px solid var(--teal); }
 .inventory-card-pending-removal { border-color: var(--coral); border-left: 4px solid var(--coral); opacity: 0.7; }
-.pending-removal-banner { background: var(--coral-light); color: var(--coral); font-size: 0.82rem; font-weight: 600; padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); margin-bottom: 0.5rem; }
-.inventory-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; }
-.inventory-card .design-name { font-family: var(--font-display); font-size: 1rem; color: var(--brown); }
+.pending-removal-banner { background: var(--coral-light); color: var(--coral); font-size: 0.72rem; font-weight: 600; padding: 0.3rem 0.6rem; border-radius: var(--radius-sm); margin-top: 0.25rem; }
+.inventory-card-info { flex: 1; min-width: 0; }
+.inventory-card .design-name { font-weight: 500; color: var(--brown); font-size: 0.95rem; margin-bottom: 0.15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.inventory-card .design-id { font-size: 0.72rem; color: var(--teal); font-weight: 600; }
 .stock-badge { background: var(--teal-light); color: var(--teal-dark); padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.8rem; font-weight: 600; white-space: nowrap; }
-.inventory-est-row { display: flex; gap: 1.25rem; flex-wrap: wrap; margin-bottom: 0.85rem; padding-bottom: 0.6rem; border-bottom: 1px solid var(--border); }
-.inventory-est-label { font-size: 0.75rem; color: var(--brown-light); }
-.inventory-est-label strong { color: var(--brown); }
-.inventory-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; margin-top: 0.75rem; }
-.action-field label { display: block; font-size: 0.7rem; font-weight: 600; color: var(--brown-light); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.3rem; }
-.action-input { width: 100%; padding: 0.5rem 0.6rem; border: 1.5px solid var(--border); border-radius: var(--radius-sm); font-family: var(--font-body); font-size: 0.875rem; color: var(--brown); background: var(--cream); transition: var(--transition); text-align: center; }
+.inventory-stock-col { text-align: center; min-width: 50px; }
+.inventory-stock-val { font-family: var(--font-display); font-size: 1.35rem; }
+.inventory-stock-label { font-size: 0.6rem; color: var(--brown-light); text-transform: uppercase; }
+.inventory-actions { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
+.action-field { display: flex; flex-direction: column; align-items: center; }
+.action-field label { font-size: 0.6rem; font-weight: 600; color: var(--brown-light); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.2rem; white-space: nowrap; }
+.action-input { width: 60px; padding: 0.35rem 0.3rem; border: 1.5px solid var(--border); border-radius: var(--radius-sm); font-family: var(--font-body); font-size: 0.85rem; color: var(--brown); background: var(--cream); transition: var(--transition); text-align: center; }
 .action-input:focus { outline: none; border-color: var(--teal); background: var(--white); }
 .action-input-pull-warn { border-color: var(--coral); background: var(--coral-light); }
 
@@ -725,11 +727,11 @@ body {
 /* ============================================================
    RETAIL PARTNERS
    ============================================================ */
-.partners-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }
+.partners-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; }
 
 .partner-card { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; box-shadow: var(--shadow-sm); transition: var(--transition); cursor: pointer; }
 .partner-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); border-color: var(--teal); }
-.partner-card-image { width: 100%; height: 140px; background: var(--cream-dark); display: flex; align-items: center; justify-content: center; font-size: 2.5rem; overflow: hidden; }
+.partner-card-image { width: 100%; aspect-ratio: 3/4; background: var(--cream-dark); display: flex; align-items: center; justify-content: center; font-size: 2.5rem; overflow: hidden; }
 .partner-card-image img { width: 100%; height: 100%; object-fit: cover; }
 .partner-card-body { padding: 1rem 1.25rem; }
 .partner-card-name { font-family: var(--font-display); font-size: 1.1rem; color: var(--brown); margin-bottom: 0.4rem; }
@@ -1120,7 +1122,8 @@ body {
     .stats-grid { grid-template-columns: repeat(2, 1fr); }
     .items-grid { grid-template-columns: repeat(2, 1fr); }
     .partners-grid { grid-template-columns: 1fr; }
-    .inventory-actions { grid-template-columns: 1fr; }
+    .inventory-card { flex-wrap: wrap; }
+    .inventory-actions { flex-wrap: wrap; }
     .audit-card { flex-wrap: wrap; }
     .form-grid { grid-template-columns: 1fr; }
     .charts-grid { grid-template-columns: 1fr; }
