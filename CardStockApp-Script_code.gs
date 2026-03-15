@@ -837,16 +837,34 @@ function updatePartnerInventory(payload) {
       logSheet = SPREADSHEET.insertSheet('retailInventory');
       logSheet.appendRow([
         'LocationID', 'PartnerName', 'VisitDate', 'ItemID', 'DesignName',
-        'StartOnShelf', 'Added', 'Pulled', 'EndOnShelf', 'EstimatedSold', 'UnitPrice', 'EntryType'
+        'StartOnShelf', 'EndOnShelf', 'EstimatedSold', 'Added', 'Pulled', 'UnitPrice', 'EntryType'
       ]);
     }
 
+    // Use header-based mapping to match existing column order
+    const logHeaders = logSheet.getRange(1, 1, 1, logSheet.getLastColumn()).getValues()[0];
+
     updates.forEach(u => {
-      logSheet.appendRow([
-        partnerId, partnerName, today, u.designId, u.designName,
-        u.previousStock, u.added || 0, u.pulled || 0, u.newStock,
-        u.estimatedSold || 0, u.unitPrice || 0, u.isNew ? 'New' : 'Update'
-      ]);
+      const logRow = new Array(logHeaders.length).fill('');
+      const logFields = {
+        'LocationID': partnerId,
+        'PartnerName': partnerName,
+        'VisitDate': today,
+        'ItemID': u.designId,
+        'DesignName': u.designName,
+        'StartOnShelf': u.previousStock,
+        'EndOnShelf': u.newStock,
+        'EstimatedSold': u.estimatedSold || 0,
+        'Added': u.added || 0,
+        'Pulled': u.pulled || 0,
+        'UnitPrice': u.unitPrice || 0,
+        'EntryType': u.isNew ? 'New' : 'Update'
+      };
+      Object.entries(logFields).forEach(([col, val]) => {
+        const idx = logHeaders.indexOf(col);
+        if (idx !== -1) logRow[idx] = val;
+      });
+      logSheet.appendRow(logRow);
     });
 
     return { success: true };
