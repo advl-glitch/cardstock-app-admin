@@ -215,11 +215,8 @@ function addItem(itemData, printRunData) {
       'UnitPrice': itemData.unitPrice || '',
       'Status': itemData.status || 'Open',
       'Notes': itemData.notes || '',
-      'Location': 'HOME',
       'CreatedAt': now,
       'StartingAtHome': printRunData ? parseInt(printRunData.quantity) || 0 : 0,
-      'StartingApproxTotal': 0,
-      'StartingOutConsignmentEst': 0,
     };
     Object.entries(fieldMap).forEach(([col, val]) => {
       const idx = headers.indexOf(col);
@@ -1152,7 +1149,7 @@ function getPublicStock() {
     const pendingMap = getPendingStockMap();
 
     const stockItems = itemsResult.items
-      .filter(item => item.Active === true || item.Active === 'TRUE')
+      .filter(item => item.Status !== 'Retired')
       .map(item => {
         const pending = pendingMap[String(item.ItemID)] || 0;
         const available = Math.max(0, (parseInt(item.StartingAtHome) || 0) - pending);
@@ -1704,7 +1701,7 @@ function getDashboardStats() {
       if (prSheet) {
         const prData = prSheet.getDataRange().getValues();
         const prHeaders = prData.shift();
-        const qtyIdx = prHeaders.indexOf('Quantity') !== -1 ? prHeaders.indexOf('Quantity') : 3; // fallback to column 4
+        const qtyIdx = prHeaders.indexOf('QtyPrinted') !== -1 ? prHeaders.indexOf('QtyPrinted') : (prHeaders.indexOf('Quantity') !== -1 ? prHeaders.indexOf('Quantity') : 3);
         prData.forEach(row => {
           totalPrinted += parseInt(row[qtyIdx]) || 0;
         });
@@ -1774,7 +1771,7 @@ function getPrintRunTotals() {
 
     const headers = data.shift();
     const itemIdx = headers.indexOf('ItemID') !== -1 ? headers.indexOf('ItemID') : 2;
-    const qtyIdx = headers.indexOf('Quantity') !== -1 ? headers.indexOf('Quantity') : 3;
+    const qtyIdx = headers.indexOf('QtyPrinted') !== -1 ? headers.indexOf('QtyPrinted') : (headers.indexOf('Quantity') !== -1 ? headers.indexOf('Quantity') : 3);
 
     const totals = {};
     data.forEach(row => {
