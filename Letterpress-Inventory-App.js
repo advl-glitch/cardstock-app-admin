@@ -1922,9 +1922,9 @@ function renderInventoryCards() {
         <div class="inventory-actions">
           <div class="action-field">
             <label>New Count</label>
-            <input type="number" class="action-input" placeholder="#" min="0"
-              value="${item.currentStock || ''}"
-              oninput="updateInventoryField(${realIdx}, 'currentStock', this.value)">
+            <input type="number" class="action-input" placeholder="${item.previousStock}" min="0"
+              value=""
+              oninput="updateInventoryField(${realIdx}, 'currentStock', this.value === '' ? '${item.previousStock}' : this.value)">
           </div>
           <div class="action-field">
             <label>Add +</label>
@@ -1940,7 +1940,7 @@ function renderInventoryCards() {
           </div>
         </div>
         <div class="est-sold-row" style="font-size:0.7rem;color:var(--brown-light);text-align:right;min-width:65px;flex-shrink:0;">
-          ${!item.isNew ? `Est. sold: <strong style="color:${estSold > 0 ? 'var(--green)' : 'var(--brown-light)'}">${estSold > 0 ? estSold : '—'}</strong>${estSold > 0 ? `<br><span style="color:var(--green);">$${estRevenue}</span>` : ''}` : '<em style="color:var(--teal);">New</em>'}
+          ${item.isNew ? '<em style="color:var(--teal);">New</em>' : ''}
         </div>
       </div>`;
   }).join('');
@@ -1960,6 +1960,16 @@ function updateInventoryField(idx, field, value) {
   const newStockEl = cards[idx].querySelector('.new-stock-display');
   const hasChanges = item.added > 0 || item.pulled > 0 || item.currentStock !== item.previousStock;
   if (newStockEl) newStockEl.textContent = hasChanges ? finalStock : '—';
+
+  // Update estimated sold visibility
+  const estSoldRow = cards[idx].querySelector('.est-sold-row');
+  if (estSoldRow && !item.isNew) {
+    const estSold = Math.max(0, item.previousStock - item.currentStock);
+    const estRevenue = (estSold * Number(item.unitPrice || 0)).toFixed(2);
+    estSoldRow.innerHTML = item.currentStock !== item.previousStock
+      ? `Est. sold: <strong style="color:${estSold > 0 ? 'var(--green)' : 'var(--brown-light)'}">${estSold > 0 ? estSold : '—'}</strong>${estSold > 0 ? '<br><span style="color:var(--green);">$' + estRevenue + '</span>' : ''}`
+      : '';
+  }
 
   // Update estimated sold
   if (!item.isNew) {
