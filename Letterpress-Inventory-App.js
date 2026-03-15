@@ -1597,6 +1597,8 @@ async function handleAddPrintRun(event) {
     const result = await r.json();
     if (result.success) {
       itemsCache = null;
+      window._printRunTotals = null;
+      window._consignmentTotals = null;
       status.className  = 'form-status success';
       status.textContent = `✅ Print run logged for design #${payload.itemId}`;
       showToast('Print run saved!', 'success');
@@ -2034,6 +2036,10 @@ async function savePartnerInventory() {
     const result = await r.json();
 
     if (result.success) {
+      // Clear caches so other pages reflect updated stock
+      itemsCache = null;
+      window._consignmentTotals = null;
+      window._printRunTotals = null;
       showToast('✅ Inventory saved!', 'success');
       setTimeout(() => loadPartnerInventoryView(retailCurrentPartnerId, null), 800);
     } else throw new Error(result.error);

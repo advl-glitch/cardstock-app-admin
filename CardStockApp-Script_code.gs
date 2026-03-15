@@ -299,7 +299,21 @@ function addPrintRun(itemId, quantity, date) {
     const dateStr = date.replace(/-/g, '');
     const runId = 'PR-' + dateStr + '-' + itemId;
 
-    sheet.appendRow([runId, runDate, itemId, parseInt(quantity), '', '', '', now]);
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const newRow = new Array(headers.length).fill('');
+    const fieldMap = {
+      'RunID': runId,
+      'RunDate': runDate,
+      'ItemID': itemId,
+      'QtyPrinted': parseInt(quantity),
+      'Quantity': parseInt(quantity),
+      'CreatedAt': now
+    };
+    Object.entries(fieldMap).forEach(([col, val]) => {
+      const idx = headers.indexOf(col);
+      if (idx !== -1) newRow[idx] = val;
+    });
+    sheet.appendRow(newRow);
 
     // Update StartingAtHome on Items sheet
     const itemsSheet = SPREADSHEET.getSheetByName('Items');
