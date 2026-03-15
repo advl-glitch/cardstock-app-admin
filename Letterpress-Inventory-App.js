@@ -1916,7 +1916,7 @@ function renderInventoryCards() {
           <div class="inventory-stock-label">Last Visit</div>
         </div>
         <div class="inventory-stock-col">
-          <div class="inventory-stock-val new-stock-display" style="color:var(--teal);font-weight:700;">${finalStock}</div>
+          <div class="inventory-stock-val new-stock-display" style="color:var(--teal);font-weight:700;">${(item.added > 0 || item.pulled > 0 || item.currentStock !== item.previousStock) ? finalStock : '—'}</div>
           <div class="inventory-stock-label">New Total</div>
         </div>
         <div class="inventory-actions">
@@ -1956,9 +1956,10 @@ function updateInventoryField(idx, field, value) {
   const finalStock = Math.max(0, (item.currentStock || 0) + (item.added || 0) - (item.pulled || 0));
   const pendingRemoval = !item.isNew && finalStock === 0;
 
-  // Update "New Total" display
+  // Update "New Total" display — only show number if something changed
   const newStockEl = cards[idx].querySelector('.new-stock-display');
-  if (newStockEl) newStockEl.textContent = finalStock;
+  const hasChanges = item.added > 0 || item.pulled > 0 || item.currentStock !== item.previousStock;
+  if (newStockEl) newStockEl.textContent = hasChanges ? finalStock : '—';
 
   // Update estimated sold
   if (!item.isNew) {
