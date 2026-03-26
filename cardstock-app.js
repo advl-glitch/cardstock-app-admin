@@ -1800,7 +1800,7 @@ async function loadPartnerInventoryView(partnerId, partnerMeta) {
         <button class="btn btn-primary" onclick="savePartnerInventory()">💾 Save All Updates</button>
       </div>
       <hr style="border:none;border-top:1px solid var(--tan);margin:2rem 0 1.5rem;">
-      <h3 class="section-title" style="margin-bottom:0.75rem;">💰 Log Actual Sales</h3>
+      <h3 class="section-title" style="margin-bottom:0.75rem;">💰 Log Check Received</h3>
       <div class="card" style="padding:1rem;">
         <div class="form-grid">
           <div class="form-field">
@@ -1815,12 +1815,8 @@ async function loadPartnerInventoryView(partnerId, partnerMeta) {
             </div>
           </div>
           <div class="form-field">
-            <label class="field-label">Actual Sales ($)</label>
-            <input class="field-input" type="number" id="actual-sale-amount" step="0.01" min="0" placeholder="e.g. 125.50">
-          </div>
-          <div class="form-field">
-            <label class="field-label">Cards Sold</label>
-            <input class="field-input" type="number" id="actual-sale-cards" min="0" placeholder="e.g. 12">
+            <label class="field-label">Check Amount ($)</label>
+            <input class="field-input" type="number" id="actual-sale-amount" step="0.01" min="0" placeholder="e.g. 36.00">
           </div>
         </div>
         <div style="display:flex;gap:0.5rem;align-items:center;margin-top:0.5rem;">
@@ -1841,7 +1837,6 @@ async function loadPartnerInventoryView(partnerId, partnerMeta) {
 async function submitActualSale() {
   const month = (document.getElementById('actual-sale-month-y')?.value || '') + '-' + (document.getElementById('actual-sale-month-m')?.value || '');
   const amount = document.getElementById('actual-sale-amount')?.value;
-  const cardsSold = document.getElementById('actual-sale-cards')?.value;
   const status = document.getElementById('actual-sale-status');
   if (!month || !amount) { status.textContent = 'Please enter month and amount.'; status.style.color = 'var(--coral)'; return; }
   status.textContent = 'Saving...'; status.style.color = 'var(--teal)';
@@ -1852,13 +1847,11 @@ async function submitActualSale() {
       partnerName: retailCurrentPartnerName,
       month: month,
       actualSales: parseFloat(amount),
-      cardsSold: parseInt(cardsSold) || 0
     })});
     const result = await r.json();
     if (result.success) {
       status.textContent = '✅ Saved!'; status.style.color = 'var(--green)';
       document.getElementById('actual-sale-amount').value = '';
-      document.getElementById('actual-sale-cards').value = '';
       loadSalesHistory(retailCurrentPartnerId);
     } else throw new Error(result.error);
   } catch (e) { status.textContent = '❌ ' + e.message; status.style.color = 'var(--coral)'; }
@@ -1875,29 +1868,26 @@ async function loadSalesHistory(partnerId) {
       return;
     }
 
-    const totalActual = data.history.reduce((s, h) => s + (parseFloat(h.actualSales) || 0), 0);
-    const totalEstimated = data.history.reduce((s, h) => s + (parseFloat(h.estimatedSales) || 0), 0);
+    const totalReceived = data.history.reduce((s, h) => s + (parseFloat(h.actualSales) || 0), 0);
+    const checksOnly = data.history.filter(h => (parseFloat(h.actualSales) || 0) > 0);
+
+    if (checksOnly.length === 0) {
+      container.innerHTML = '<p style="font-size:0.8rem;color:var(--brown-mid);margin:0;">No checks logged yet.</p>';
+      return;
+    }
+
     container.innerHTML = `
-      <div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--brown-mid);font-weight:700;margin-bottom:0.4rem;">Sales History</div>
-      <div style="display:grid;grid-template-columns:1fr auto auto auto;gap:0.2rem 0.75rem;font-size:0.85rem;margin-bottom:0.75rem;">
+      <div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--brown-mid);font-weight:700;margin-bottom:0.4rem;">Checks Received</div>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:0.2rem 1rem;font-size:0.85rem;margin-bottom:0.75rem;">
         <span style="font-size:0.7rem;text-transform:uppercase;color:var(--brown-light);font-weight:600;">Month</span>
-        <span style="font-size:0.7rem;text-transform:uppercase;color:var(--brown-light);font-weight:600;text-align:right;">Estimated</span>
-        <span style="font-size:0.7rem;text-transform:uppercase;color:var(--brown-light);font-weight:600;text-align:right;">Received</span>
-        <span style="font-size:0.7rem;text-transform:uppercase;color:var(--brown-light);font-weight:600;text-align:right;">Est. Cards Sold</span>
-        ${data.history.map(h => {
-          const est = parseFloat(h.estimatedSales) || 0;
-          const act = parseFloat(h.actualSales) || 0;
-          const diff = act - est;
-          return `
-            <span style="color:var(--brown-dark)">${h.month}</span>
-            <span style="text-align:right;color:var(--brown-mid);">${est > 0 ? '$' + est.toFixed(2) : '—'}</span>
-            <span style="font-weight:600;color:var(--green);text-align:right;">$${act.toFixed(2)}</span>
-            <span style="color:var(--brown-mid);text-align:right;">${h.cardsSold ? h.cardsSold : '—'}</span>`;
-        }).join('')}
+        <span style="font-size:0.7rem;text-transform:uppercase;color:var(--brown-light);font-weight:600;text-align:right;">Amount</span>
+        ${checksOnly.map(h => `
+          <span style="color:var(--brown-dark)">${h.month}</span>
+          <span style="font-weight:600;color:var(--green);text-align:right;">$${(parseFloat(h.actualSales) || 0).toFixed(2)}</span>
+        `).join('')}
       </div>
-      <div style="display:flex;gap:1rem;flex-wrap:wrap;padding:0.6rem 0.75rem;background:var(--cream);border-radius:var(--radius-sm);border:1px solid var(--border);">
-        <div style="font-size:0.8rem;"><span style="color:var(--brown-mid);">Total Received:</span> <strong style="color:var(--green);">$${totalActual.toFixed(2)}</strong></div>
-        <div style="font-size:0.8rem;"><span style="color:var(--brown-mid);">Total Estimated:</span> <strong style="color:var(--amber);">$${totalEstimated.toFixed(2)}</strong></div>
+      <div style="padding:0.5rem 0.75rem;background:var(--cream);border-radius:var(--radius-sm);border:1px solid var(--border);font-size:0.8rem;">
+        <span style="color:var(--brown-mid);">Total Received:</span> <strong style="color:var(--green);">$${totalReceived.toFixed(2)}</strong>
       </div>`;
   } catch (e) {
     container.innerHTML = '';
