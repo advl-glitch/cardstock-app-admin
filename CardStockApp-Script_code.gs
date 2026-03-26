@@ -4,6 +4,9 @@
 
 const SPREADSHEET = SpreadsheetApp.openById('1FiDZXPV6aimKpKUvzDCQczq01nCdvMZLzRhWq-DB50U');
 
+// Admin email for self-notifications (restock notes, order alerts, etc.)
+const ADMIN_EMAIL = 'adavidverde@gmail.com';
+
 // Virginia sales tax rate for Staunton VA
 const VA_SALES_TAX = 0.053;
 
@@ -1570,7 +1573,7 @@ function sendRestockNotification(notifData) {
 function sendRestockNotes(payload) {
   try {
     const { partnerName, notes } = payload;
-    const myEmail = Session.getActiveUser().getEmail();
+    const myEmail = ADMIN_EMAIL;
 
     MailApp.sendEmail({
       to: myEmail,
@@ -1677,6 +1680,24 @@ function sendVisitReport(payload) {
         <td style="padding:10px 12px;border-bottom:1px solid #EDE7D6;text-align:center;font-weight:700;color:#5A9E6F;font-size:1.1rem;">${item.qty}</td>
       </tr>`).join('');
 
+    // Get current shelf from PartnerStock
+    let shelfRows = '';
+    const stockSheet = SPREADSHEET.getSheetByName('PartnerStock');
+    if (stockSheet) {
+      const stockData = stockSheet.getDataRange().getValues();
+      const stockHeaders = stockData[0];
+      const sIdx = {};
+      stockHeaders.forEach((h, i) => { sIdx[h] = i; });
+      const shelfItems = stockData.slice(1)
+        .filter(row => String(row[sIdx['LocationID']]) === String(partnerId) && (parseInt(row[sIdx['CurrentStock']]) || 0) > 0);
+      shelfRows = shelfItems.map(row => `
+        <tr>
+          <td style="padding:8px 12px;border-bottom:1px solid #EDE7D6;font-family:Georgia,serif;color:#4AABAB;font-weight:700;font-size:0.8rem;">#${row[sIdx['ItemID']]}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #EDE7D6;color:#3D2B1F;">${row[sIdx['DesignName']]}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #EDE7D6;text-align:center;font-weight:700;color:#3D2B1F;">${row[sIdx['CurrentStock']]}</td>
+        </tr>`).join('');
+    }
+
     const formattedDate = new Date(visitDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
     const body = `
@@ -1738,6 +1759,19 @@ function sendVisitReport(payload) {
 
           ${!addedRows && !pulledRows && !soldOutRows ? `
           <p style="font-size:0.9rem;color:#6B4C3B;font-style:italic;">No inventory changes during this visit.</p>` : ''}
+
+          ${shelfRows ? `
+          <div style="font-family:Georgia,serif;font-size:1rem;color:#3D2B1F;margin-bottom:10px;font-weight:600;">📋 Currently on Shelf</div>
+          <table style="width:100%;border-collapse:collapse;background:white;border-radius:10px;overflow:hidden;margin-bottom:24px;">
+            <thead>
+              <tr style="background:#A07860;color:white;">
+                <th style="padding:8px 12px;text-align:left;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;">Design #</th>
+                <th style="padding:8px 12px;text-align:left;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;">Name</th>
+                <th style="padding:8px 12px;text-align:center;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;">Qty</th>
+              </tr>
+            </thead>
+            <tbody>${shelfRows}</tbody>
+          </table>` : ''}
 
           ${note ? `
           <div style="background:white;border-radius:10px;padding:14px 18px;margin-bottom:24px;border-left:4px solid #E8933A;">
@@ -1803,7 +1837,7 @@ function submitPartnerRequest(requestData) {
 
     try {
       MailApp.sendEmail({
-        to: Session.getActiveUser().getEmail(),
+        to: ADMIN_EMAIL,
         subject: '🆕 New Partner Request — ' + requestData.storeName,
         htmlBody: `
           <h2>New Partner Account Request</h2>
@@ -1863,7 +1897,7 @@ function sendOrderNotification(orderId, orderData, subTotal, taxAmount, estTotal
     `;
 
     MailApp.sendEmail({
-      to: Session.getActiveUser().getEmail(),
+      to: ADMIN_EMAIL,
       subject: subject,
       htmlBody: body
     });
