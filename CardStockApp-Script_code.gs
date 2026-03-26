@@ -89,6 +89,7 @@ function doPost(e) {
     case 'logActualSale':            result = logActualSale(payload); break;
     case 'logMarketSale':            result = logMarketSale(payload); break;
     case 'sendVisitReport':          result = sendVisitReport(payload); break;
+    case 'sendRestockNotes':         result = sendRestockNotes(payload); break;
     default:
       result = { success: false, error: 'Invalid action: ' + action };
   }
@@ -1563,6 +1564,36 @@ function sendRestockNotification(notifData) {
 
 
 // =============================================================================
+// RESTOCK NOTES EMAIL
+// =============================================================================
+
+function sendRestockNotes(payload) {
+  try {
+    const { partnerName, notes } = payload;
+    const myEmail = Session.getActiveUser().getEmail();
+
+    MailApp.sendEmail({
+      to: myEmail,
+      subject: `📝 Restock Notes — ${partnerName}`,
+      htmlBody: `
+        <div style="font-family:Georgia,serif;max-width:620px;margin:0 auto;color:#3D2B1F;">
+          <div style="background:#2C1F17;padding:20px 28px;border-radius:10px 10px 0 0;">
+            <div style="font-size:1.2rem;color:#F0E6D3;">📝 Restock Notes</div>
+            <div style="color:#C4A882;font-size:0.8rem;margin-top:4px;">${partnerName} · ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</div>
+          </div>
+          <div style="padding:20px 28px;background:#F5F0E4;border-radius:0 0 10px 10px;">
+            <div style="background:white;border-radius:8px;padding:16px;white-space:pre-wrap;line-height:1.6;font-size:0.95rem;">${notes}</div>
+          </div>
+        </div>`
+    });
+
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+// =============================================================================
 // STORE VISIT DATA & REPORT EMAIL
 // =============================================================================
 
@@ -1622,7 +1653,7 @@ function sendVisitReport(payload) {
     const entries = visitResult.entries || [];
     const visitDate = visitResult.visitDate || new Date().toLocaleDateString('en-CA');
     const pulledItems = entries.filter(e => (e.pulled || 0) > 0).map(e => ({ designId: e.itemId, designName: e.designName, qty: e.pulled }));
-    const soldItems = entries.filter(e => (e.estimatedSold || 0) > 0).map(e => ({ designId: e.itemId, designName: e.designName, qty: e.estimatedSold, revenue: e.estimatedSold * (e.unitPrice || 0) }));
+    const soldOutItems = entries.filter(e => e.endOnShelf === 0 && e.startOnShelf > 0).map(e => ({ designId: e.itemId, designName: e.designName, qty: e.startOnShelf }));
     const addedItems = entries.filter(e => (e.added || 0) > 0).map(e => ({ designId: e.itemId, designName: e.designName, qty: e.added }));
 
     const addedRows = (addedItems || []).map(item => `
@@ -1639,12 +1670,11 @@ function sendVisitReport(payload) {
         <td style="padding:10px 12px;border-bottom:1px solid #EDE7D6;text-align:center;font-weight:700;color:#E05C45;font-size:1.1rem;">${item.qty}</td>
       </tr>`).join('');
 
-    const soldRows = (soldItems || []).map(item => `
+    const soldOutRows = (soldOutItems || []).map(item => `
       <tr>
         <td style="padding:10px 12px;border-bottom:1px solid #EDE7D6;font-family:Georgia,serif;color:#4AABAB;font-weight:700;font-size:0.8rem;">#${item.designId}</td>
         <td style="padding:10px 12px;border-bottom:1px solid #EDE7D6;color:#3D2B1F;">${item.designName}</td>
         <td style="padding:10px 12px;border-bottom:1px solid #EDE7D6;text-align:center;font-weight:700;color:#5A9E6F;font-size:1.1rem;">${item.qty}</td>
-        <td style="padding:10px 12px;border-bottom:1px solid #EDE7D6;text-align:right;color:#3D2B1F;">$${(item.revenue || 0).toFixed(2)}</td>
       </tr>`).join('');
 
     const formattedDate = new Date(visitDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
@@ -1693,21 +1723,20 @@ function sendVisitReport(payload) {
             <tbody>${pulledRows}</tbody>
           </table>` : ''}
 
-          ${soldRows ? `
-          <div style="font-family:Georgia,serif;font-size:1rem;color:#3D2B1F;margin-bottom:10px;font-weight:600;">💰 Items Sold Out (Removed from Shelf)</div>
+          ${soldOutRows ? `
+          <div style="font-family:Georgia,serif;font-size:1rem;color:#3D2B1F;margin-bottom:10px;font-weight:600;">🏷️ Sold Out</div>
           <table style="width:100%;border-collapse:collapse;background:white;border-radius:10px;overflow:hidden;margin-bottom:24px;">
             <thead>
               <tr style="background:#5A9E6F;color:white;">
                 <th style="padding:10px 12px;text-align:left;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;">Design #</th>
                 <th style="padding:10px 12px;text-align:left;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;">Name</th>
                 <th style="padding:10px 12px;text-align:center;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;">Qty Sold</th>
-                <th style="padding:10px 12px;text-align:right;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;">Revenue</th>
               </tr>
             </thead>
-            <tbody>${soldRows}</tbody>
+            <tbody>${soldOutRows}</tbody>
           </table>` : ''}
 
-          ${!addedRows && !pulledRows && !soldRows ? `
+          ${!addedRows && !pulledRows && !soldOutRows ? `
           <p style="font-size:0.9rem;color:#6B4C3B;font-style:italic;">No inventory changes during this visit.</p>` : ''}
 
           ${note ? `

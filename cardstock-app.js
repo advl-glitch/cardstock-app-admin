@@ -1943,6 +1943,7 @@ function renderStockSummary() {
         <span style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--brown-mid);font-weight:700;">${retailInventoryState.length} Designs on Shelf</span>
         <div style="display:flex;align-items:center;gap:0.5rem;">
           <span style="font-size:0.8rem;font-weight:600;color:var(--teal);">${totalCards} total cards</span>
+          <button class="btn btn-secondary btn-sm" style="padding:0.15rem 0.5rem;font-size:0.7rem;" onclick="openRestockNotes()">📝 Notes</button>
           <button class="btn btn-secondary btn-sm" style="padding:0.15rem 0.5rem;font-size:0.7rem;" onclick="previewVisitReport()">📧 Report</button>
           <button class="btn btn-secondary btn-sm" style="padding:0.15rem 0.5rem;font-size:0.7rem;" onclick="toggleSummaryView()">Expand</button>
         </div>
@@ -1965,6 +1966,7 @@ function renderStockSummary() {
         <span style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--brown-mid);font-weight:700;">${retailInventoryState.length} Designs on Shelf</span>
         <div style="display:flex;align-items:center;gap:0.5rem;">
           <span style="font-size:0.8rem;font-weight:600;color:var(--teal);">${totalCards} total cards</span>
+          <button class="btn btn-secondary btn-sm" style="padding:0.15rem 0.5rem;font-size:0.7rem;" onclick="openRestockNotes()">📝 Notes</button>
           <button class="btn btn-secondary btn-sm" style="padding:0.15rem 0.5rem;font-size:0.7rem;" onclick="previewVisitReport()">📧 Report</button>
           <button class="btn btn-secondary btn-sm" style="padding:0.15rem 0.5rem;font-size:0.7rem;" onclick="toggleSummaryView()">Compact</button>
         </div>
@@ -2255,6 +2257,72 @@ async function confirmAddDesignToPartner() {
 }
 
 // ============================================================
+// RESTOCK NOTES
+// ============================================================
+
+function openRestockNotes() {
+  const partnerMeta = window._currentPartnerMeta || {};
+  const existingNotes = partnerMeta.notes || '';
+
+  openModal(`
+    <div class="modal-title">📝 Restock Notes</div>
+    <div style="font-size:0.85rem;color:var(--brown-mid);margin-bottom:1rem;">${retailCurrentPartnerName}</div>
+    <div class="form-field">
+      <label class="field-label">What do they want restocked next visit?</label>
+      <textarea class="field-input" id="restock-notes-text" rows="5" placeholder="e.g. More Christmas cards, they want 6 of #18, reprint #5...">${existingNotes}</textarea>
+    </div>
+    <div style="display:flex;gap:0.5rem;margin-top:0.75rem;">
+      <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.8rem;color:var(--brown-mid);cursor:pointer;">
+        <input type="checkbox" id="restock-notes-email" style="accent-color:var(--teal);"> Email me a copy
+      </label>
+    </div>
+    <div id="restock-notes-btn-wrap" style="margin-top:0.75rem;">
+      <button class="btn btn-primary" style="width:100%;" onclick="saveRestockNotes()">💾 Save Notes</button>
+    </div>
+    <div id="restock-notes-status" class="form-status"></div>
+  `);
+}
+
+async function saveRestockNotes() {
+  const notes = document.getElementById('restock-notes-text')?.value.trim() || '';
+  const emailMe = document.getElementById('restock-notes-email')?.checked;
+  const status = document.getElementById('restock-notes-status');
+  const btnWrap = document.getElementById('restock-notes-btn-wrap');
+
+  if (btnWrap) btnWrap.style.display = 'none';
+  status.className = 'form-status loading'; status.textContent = 'Saving...';
+
+  try {
+    // Save notes to partner record
+    const r = await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({
+      action: 'updateRetailPartner',
+      partnerData: { locationId: retailCurrentPartnerId, notes: notes },
+    })});
+    const result = await r.json();
+    if (!result.success) throw new Error(result.error);
+
+    // Update local cache
+    if (window._currentPartnerMeta) window._currentPartnerMeta.notes = notes;
+
+    // Email a copy if requested
+    if (emailMe && notes) {
+      await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({
+        action: 'sendRestockNotes',
+        partnerName: retailCurrentPartnerName,
+        notes: notes,
+      })});
+    }
+
+    status.className = 'form-status success'; status.textContent = '✅ Notes saved!';
+    showToast('Restock notes saved!', 'success');
+    setTimeout(closeModal, 1000);
+  } catch (e) {
+    status.className = 'form-status error'; status.textContent = '❌ ' + e.message;
+    if (btnWrap) btnWrap.style.display = '';
+  }
+}
+
+// ============================================================
 // STORE VISIT REPORT
 // ============================================================
 
@@ -2278,9 +2346,8 @@ async function previewVisitReport() {
   const pulledItems = entries.filter(e => (e.pulled || 0) > 0).map(e => ({
     designId: e.itemId, designName: (e.designName || '').replace(/^\d+\s*—\s*/, ''), qty: e.pulled,
   }));
-  const soldItems = entries.filter(e => (e.estimatedSold || 0) > 0).map(e => ({
-    designId: e.itemId, designName: (e.designName || '').replace(/^\d+\s*—\s*/, ''), qty: e.estimatedSold,
-    revenue: e.estimatedSold * (parseFloat(e.unitPrice) || 0),
+  const soldOutItems = entries.filter(e => e.endOnShelf === 0 && e.startOnShelf > 0).map(e => ({
+    designId: e.itemId, designName: (e.designName || '').replace(/^\d+\s*—\s*/, ''), qty: e.startOnShelf,
   }));
 
   const today = visitData.visitDate
@@ -2288,20 +2355,20 @@ async function previewVisitReport() {
     : new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
   // Build section helper
-  const buildSection = (icon, title, color, items, showRevenue) => {
+  const buildSection = (icon, title, color, items) => {
     if (!items.length) return '';
     return `
       <div style="font-weight:600;margin-bottom:0.5rem;color:var(--${color});">${icon} ${title} (${items.length})</div>
       <div style="background:var(--cream);border-radius:var(--radius-sm);padding:0.5rem;margin-bottom:1rem;">
         ${items.map(i => `<div style="display:flex;justify-content:space-between;padding:0.3rem 0;border-bottom:1px solid var(--border);font-size:0.85rem;">
           <span>#${i.designId} — ${i.designName}</span>
-          <strong style="color:var(--${color});">${showRevenue && i.revenue ? '×' + i.qty + ' · $' + i.revenue.toFixed(2) : '×' + i.qty}</strong>
+          <strong style="color:var(--${color});">×${i.qty}</strong>
         </div>`).join('')}
       </div>`;
   };
-  const addedHtml = buildSection('🆕', 'Added to Shelf', 'teal', addedItems, false);
-  const pulledHtml = buildSection('📦', 'Pulled from Shelf', 'coral', pulledItems, false);
-  const soldHtml = buildSection('💰', 'Estimated Sold', 'green', soldItems, true);
+  const addedHtml = buildSection('🆕', 'Added to Shelf', 'teal', addedItems);
+  const pulledHtml = buildSection('📦', 'Pulled from Shelf', 'coral', pulledItems);
+  const soldOutHtml = buildSection('🏷️', 'Sold Out', 'green', soldOutItems);
 
   // Get partner emails from cache
   const partnerMeta = window._currentPartnerMeta || {};
@@ -2317,7 +2384,7 @@ async function previewVisitReport() {
       <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:1rem;max-height:300px;overflow-y:auto;background:white;">
         ${addedHtml}
         ${pulledHtml}
-        ${soldHtml}
+        ${soldOutHtml}
         <div style="font-weight:600;margin-bottom:0.5rem;color:var(--teal);">📋 Current Shelf (${retailInventoryState.length} designs)</div>
         <div style="background:var(--cream);border-radius:var(--radius-sm);padding:0.5rem;">
           ${retailInventoryState.map(i => {
