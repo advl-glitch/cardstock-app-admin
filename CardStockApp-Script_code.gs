@@ -50,6 +50,7 @@ function doGet(e) {
     case 'migrateToPartnerStock': result = migrateToPartnerStock(); break;
     case 'getLatestVisit':       result = getLatestVisit(e.parameter.partnerId); break;
     case 'backfillEstimatedSales': result = backfillEstimatedSales(); break;
+    case 'fixRetailSalesSheet':    result = fixRetailSalesSheet(); break;
     default:
       result = { success: false, error: 'Invalid action: ' + action };
   }
@@ -933,9 +934,14 @@ function updatePartnerInventory(payload) {
       const smIdx = salesHeaders.indexOf('Month');
       const seIdx = salesHeaders.indexOf('EstimatedSales');
 
+      const normalizeMonth = (val) => {
+        if (val instanceof Date) return val.getFullYear() + '-' + String(val.getMonth() + 1).padStart(2, '0');
+        const s = String(val); return s.length > 7 ? s.substring(0, 7) : s;
+      };
+
       let found = false;
       for (let i = 1; i < salesData.length; i++) {
-        if (String(salesData[i][spIdx]) === String(partnerId) && String(salesData[i][smIdx]) === String(visitMonth)) {
+        if (String(salesData[i][spIdx]) === String(partnerId) && normalizeMonth(salesData[i][smIdx]) === String(visitMonth)) {
           // Update estimated sales for existing row
           const existing = parseFloat(salesData[i][seIdx]) || 0;
           salesSheet.getRange(i + 1, seIdx + 1).setValue(existing + totalEstimatedRevenue);
@@ -969,10 +975,15 @@ function getPartnerSalesHistory(partnerId) {
     const eIdx    = headers.indexOf('EstimatedSales');
     const cIdx    = headers.indexOf('CardsSold');
 
+    const normalizeMonth = (val) => {
+      if (val instanceof Date) return val.getFullYear() + '-' + String(val.getMonth() + 1).padStart(2, '0');
+      const s = String(val); return s.length > 7 ? s.substring(0, 7) : s;
+    };
+
     const history = data
       .filter(row => String(row[pIdx]) === String(partnerId))
       .map(row => ({
-        month:          row[mIdx],
+        month:          normalizeMonth(row[mIdx]),
         actualSales:    parseFloat(row[aIdx]) || 0,
         estimatedSales: parseFloat(row[eIdx]) || 0,
         cardsSold:      parseInt(row[cIdx]) || 0,
@@ -1001,9 +1012,15 @@ function logActualSale(payload) {
     const pIdx    = headers.indexOf('PartnerID');
     const mIdx    = headers.indexOf('Month');
 
+    // Normalize month values for comparison (handle Date objects from Sheets)
+    const normalizeMonth = (val) => {
+      if (val instanceof Date) return val.getFullYear() + '-' + String(val.getMonth() + 1).padStart(2, '0');
+      const s = String(val); return s.length > 7 ? s.substring(0, 7) : s;
+    };
+
     // Check if row already exists for this partner+month (update it)
     for (let i = 1; i < data.length; i++) {
-      if (String(data[i][pIdx]) === String(partnerId) && String(data[i][mIdx]) === String(month)) {
+      if (String(data[i][pIdx]) === String(partnerId) && normalizeMonth(data[i][mIdx]) === String(month)) {
         sheet.getRange(i + 1, headers.indexOf('ActualSales') + 1).setValue(actualSales);
         if (cardsSold !== undefined) sheet.getRange(i + 1, headers.indexOf('CardsSold') + 1).setValue(cardsSold);
         sheet.getRange(i + 1, headers.indexOf('LoggedAt') + 1).setValue(new Date().toISOString());
@@ -1014,6 +1031,102 @@ function logActualSale(payload) {
     // Append new row
     sheet.appendRow([partnerId, partnerName, month, actualSales, 0, cardsSold || 0, new Date().toISOString()]);
     return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+// =============================================================================
+// FIX RETAIL SALES SHEET (one-time migration)
+// =============================================================================
+
+function fixRetailSalesSheet() {
+  try {
+    let sheet = SPREADSHEET.getSheetByName('RetailSales');
+    if (!sheet) return { success: false, error: 'RetailSales sheet not found.' };
+
+    const data = sheet.getDataRange().getValues();
+    const headers = data[0];
+    const log = [];
+
+    // Step 1: Check if EstimatedSales column exists
+    const hasEstimated = headers.indexOf('EstimatedSales') !== -1;
+
+    if (!hasEstimated) {
+      // Insert EstimatedSales column after ActualSales (position 5, 1-based)
+      const actualIdx = headers.indexOf('ActualSales');
+      const insertPos = actualIdx + 2; // 1-based, after ActualSales
+      sheet.insertColumnAfter(actualIdx + 1);
+      sheet.getRange(1, insertPos).setValue('EstimatedSales');
+      // Set all existing rows to 0 for EstimatedSales
+      for (let i = 2; i <= data.length; i++) {
+        sheet.getRange(i, insertPos).setValue(0);
+      }
+      log.push('Added EstimatedSales column at position ' + insertPos);
+    } else {
+      log.push('EstimatedSales column already exists');
+    }
+
+    // Re-read after potential column insert
+    const freshData = sheet.getDataRange().getValues();
+    const freshHeaders = freshData[0];
+    const mIdx = freshHeaders.indexOf('Month');
+
+    // Step 2: Normalize month format — convert date objects to YYYY-MM strings
+    let monthsFixed = 0;
+    for (let i = 1; i < freshData.length; i++) {
+      const val = freshData[i][mIdx];
+      let normalized;
+      if (val instanceof Date) {
+        const y = val.getFullYear();
+        const m = String(val.getMonth() + 1).padStart(2, '0');
+        normalized = y + '-' + m;
+      } else {
+        const str = String(val);
+        // Handle "2026-02-01 00:00:00" or similar
+        if (str.length > 7) {
+          normalized = str.substring(0, 7);
+        } else {
+          normalized = str; // already YYYY-MM
+        }
+      }
+      if (String(val) !== normalized) {
+        sheet.getRange(i + 1, mIdx + 1).setValue(normalized);
+        monthsFixed++;
+      }
+    }
+    log.push('Normalized ' + monthsFixed + ' month values to YYYY-MM');
+
+    // Step 3: Delete any rows that were created by the bad backfill
+    // These are rows where ActualSales=0 and the data looks shifted
+    // We'll identify them as rows where EstimatedSales got written into wrong columns
+    // Safest: delete all rows where ActualSales=0 AND there's no manually entered data
+    // Then re-run backfill fresh
+    const reRead = sheet.getDataRange().getValues();
+    const rHeaders = reRead[0];
+    const rActIdx = rHeaders.indexOf('ActualSales');
+    const rEstIdx = rHeaders.indexOf('EstimatedSales');
+    const rCardsIdx = rHeaders.indexOf('CardsSold');
+    const rLogIdx = rHeaders.indexOf('LoggedAt');
+
+    const rowsToDelete = [];
+    for (let i = 1; i < reRead.length; i++) {
+      const actual = parseFloat(reRead[i][rActIdx]) || 0;
+      const cards = parseInt(reRead[i][rCardsIdx]) || 0;
+      // If no actual sales logged and no cards sold, this was a backfill-only row — safe to delete and recreate
+      if (actual === 0 && cards === 0) {
+        rowsToDelete.push(i + 1);
+      }
+    }
+    // Delete bottom-up
+    rowsToDelete.sort((a, b) => b - a).forEach(row => sheet.deleteRow(row));
+    log.push('Deleted ' + rowsToDelete.length + ' backfill-only rows (will be recreated by backfill)');
+
+    // Step 4: Run backfill fresh
+    const backfillResult = backfillEstimatedSales();
+    log.push('Backfill result: ' + (backfillResult.message || backfillResult.error || 'done'));
+
+    return { success: true, log };
   } catch (e) {
     return { success: false, error: e.message };
   }
@@ -2349,9 +2462,14 @@ function getSalesReportData(params) {
         const rActualIdx = rHeaders.indexOf('ActualSales');
         const rCardsIdx = rHeaders.indexOf('CardsSold');
 
+        const normalizeMonth = (val) => {
+          if (val instanceof Date) return val.getFullYear() + '-' + String(val.getMonth() + 1).padStart(2, '0');
+          const s = String(val); return s.length > 7 ? s.substring(0, 7) : s;
+        };
+
         rData.forEach(row => {
           if (partnerId && String(row[rPIdx]) !== String(partnerId)) return;
-          const month = String(row[rMonthIdx]);
+          const month = normalizeMonth(row[rMonthIdx]);
           if (dateFrom && month < dateFrom.substring(0, 7)) return;
           if (dateTo && month > dateTo.substring(0, 7)) return;
           retailSales.push({
