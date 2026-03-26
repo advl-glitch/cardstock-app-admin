@@ -1796,8 +1796,7 @@ async function loadPartnerInventoryView(partnerId, partnerMeta) {
         </div>
       </div>
       <div id="inventory-list-container"></div>
-      <div style="margin-top:1rem;display:flex;justify-content:flex-end;gap:0.5rem;">
-        <button class="btn btn-secondary" onclick="previewVisitReport()">📧 Send Visit Report</button>
+      <div style="margin-top:1rem;display:flex;justify-content:flex-end;">
         <button class="btn btn-primary" onclick="savePartnerInventory()">💾 Save All Updates</button>
       </div>
       <hr style="border:none;border-top:1px solid var(--tan);margin:2rem 0 1.5rem;">
@@ -1944,6 +1943,7 @@ function renderStockSummary() {
         <span style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--brown-mid);font-weight:700;">${retailInventoryState.length} Designs on Shelf</span>
         <div style="display:flex;align-items:center;gap:0.5rem;">
           <span style="font-size:0.8rem;font-weight:600;color:var(--teal);">${totalCards} total cards</span>
+          <button class="btn btn-secondary btn-sm" style="padding:0.15rem 0.5rem;font-size:0.7rem;" onclick="previewVisitReport()">📧 Report</button>
           <button class="btn btn-secondary btn-sm" style="padding:0.15rem 0.5rem;font-size:0.7rem;" onclick="toggleSummaryView()">Expand</button>
         </div>
       </div>
@@ -1965,6 +1965,7 @@ function renderStockSummary() {
         <span style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--brown-mid);font-weight:700;">${retailInventoryState.length} Designs on Shelf</span>
         <div style="display:flex;align-items:center;gap:0.5rem;">
           <span style="font-size:0.8rem;font-weight:600;color:var(--teal);">${totalCards} total cards</span>
+          <button class="btn btn-secondary btn-sm" style="padding:0.15rem 0.5rem;font-size:0.7rem;" onclick="previewVisitReport()">📧 Report</button>
           <button class="btn btn-secondary btn-sm" style="padding:0.15rem 0.5rem;font-size:0.7rem;" onclick="toggleSummaryView()">Compact</button>
         </div>
       </div>
@@ -2284,11 +2285,6 @@ function previewVisitReport() {
       };
     });
 
-  if (pulledItems.length === 0 && soldItems.length === 0) {
-    showToast('No pulled or sold-out items to report', '');
-    return;
-  }
-
   const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
   // Build preview HTML
@@ -2322,6 +2318,15 @@ function previewVisitReport() {
       <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:1rem;max-height:250px;overflow-y:auto;background:white;">
         ${pulledHtml}
         ${soldHtml}
+        ${!pulledHtml && !soldHtml ? `
+          <div style="font-weight:600;margin-bottom:0.5rem;color:var(--teal);">📋 Current Shelf (${retailInventoryState.length} designs)</div>
+          <div style="background:var(--cream);border-radius:var(--radius-sm);padding:0.5rem;">
+            ${retailInventoryState.map(i => {
+              const stock = Math.max(0, (i.currentStock || 0) + (i.added || 0) - (i.pulled || 0));
+              const name = (i.designName || '').replace(/^\d+\s*—\s*/, '');
+              return '<div style="display:flex;justify-content:space-between;padding:0.3rem 0;border-bottom:1px solid var(--border);font-size:0.85rem;"><span>#' + i.designId + ' — ' + name + '</span><strong style="color:var(--teal);">×' + stock + '</strong></div>';
+            }).join('')}
+          </div>` : ''}
       </div>
     </div>
 
