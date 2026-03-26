@@ -60,6 +60,49 @@ let tagsCache     = null;
 let machinesCache = null;
 
 // ============================================================
+// PULL-TO-REFRESH (mobile webapp)
+// ============================================================
+(function() {
+  let startY = 0, pulling = false, indicator = null;
+
+  function createIndicator() {
+    if (indicator) return;
+    indicator = document.createElement('div');
+    indicator.id = 'pull-refresh-indicator';
+    indicator.style.cssText = 'position:fixed;top:0;left:0;right:0;text-align:center;padding:12px;background:var(--cream,#F5F0E4);color:var(--teal,#4AABAB);font-size:0.85rem;font-weight:600;z-index:9999;transform:translateY(-100%);transition:transform 0.2s;font-family:Georgia,serif;';
+    document.body.appendChild(indicator);
+  }
+
+  document.addEventListener('touchstart', (e) => {
+    if (window.scrollY === 0 && e.touches.length === 1) {
+      startY = e.touches[0].clientY;
+      pulling = true;
+    }
+  }, { passive: true });
+
+  document.addEventListener('touchmove', (e) => {
+    if (!pulling) return;
+    const diff = e.touches[0].clientY - startY;
+    if (diff > 30 && window.scrollY === 0) {
+      createIndicator();
+      indicator.textContent = diff > 80 ? '↻ Release to refresh' : '↓ Pull to refresh';
+      indicator.style.transform = 'translateY(0)';
+    }
+  }, { passive: true });
+
+  document.addEventListener('touchend', () => {
+    if (!pulling || !indicator) { pulling = false; return; }
+    const wasReady = indicator.textContent.includes('Release');
+    indicator.style.transform = 'translateY(-100%)';
+    pulling = false;
+    if (wasReady) {
+      const currentPage = sessionStorage.getItem('pba_current_page') || 'home';
+      loadPage(currentPage);
+    }
+  });
+})();
+
+// ============================================================
 // DOG MASCOT
 // ============================================================
 function dogLoading(message = 'Loading...') {
@@ -1693,6 +1736,7 @@ async function renderRecordSalePage() {
       const partner = (partnerRes.partners || []).find(p => p.value === partnerId);
       retailCurrentPartnerId   = partnerId;
       retailCurrentPartnerName = partner?.label || partnerId;
+      window._currentPartnerMeta = partner || {};
       loadPartnerInventoryView(partnerId, partner);
     });
 
@@ -1752,7 +1796,8 @@ async function loadPartnerInventoryView(partnerId, partnerMeta) {
         </div>
       </div>
       <div id="inventory-list-container"></div>
-      <div style="margin-top:1rem;display:flex;justify-content:flex-end;">
+      <div style="margin-top:1rem;display:flex;justify-content:flex-end;gap:0.5rem;">
+        <button class="btn btn-secondary" onclick="previewVisitReport()">📧 Send Visit Report</button>
         <button class="btn btn-primary" onclick="savePartnerInventory()">💾 Save All Updates</button>
       </div>
       <hr style="border:none;border-top:1px solid var(--tan);margin:2rem 0 1.5rem;">
@@ -1830,14 +1875,33 @@ async function loadSalesHistory(partnerId) {
       container.innerHTML = '<p style="font-size:0.8rem;color:var(--brown-mid);margin:0;">No sales logged yet.</p>';
       return;
     }
+
+    const totalActual = data.history.reduce((s, h) => s + (parseFloat(h.actualSales) || 0), 0);
+    const totalEstimated = data.history.reduce((s, h) => s + (parseFloat(h.estimatedSales) || 0), 0);
+    const outstanding = Math.max(0, totalEstimated - totalActual);
+
     container.innerHTML = `
       <div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--brown-mid);font-weight:700;margin-bottom:0.4rem;">Sales History</div>
-      <div style="display:grid;grid-template-columns:1fr auto auto;gap:0.2rem 1rem;font-size:0.85rem;">
-        ${data.history.map(h => `
-          <span style="color:var(--brown-dark)">${h.month}</span>
-          <span style="font-weight:600;color:var(--green);text-align:right;">$${Number(h.actualSales || 0).toFixed(2)}</span>
-          <span style="color:var(--brown-mid);text-align:right;">${h.cardsSold ? h.cardsSold + ' cards' : '—'}</span>
-        `).join('')}
+      <div style="display:grid;grid-template-columns:1fr auto auto auto;gap:0.2rem 0.75rem;font-size:0.85rem;margin-bottom:0.75rem;">
+        <span style="font-size:0.7rem;text-transform:uppercase;color:var(--brown-light);font-weight:600;">Month</span>
+        <span style="font-size:0.7rem;text-transform:uppercase;color:var(--brown-light);font-weight:600;text-align:right;">Estimated</span>
+        <span style="font-size:0.7rem;text-transform:uppercase;color:var(--brown-light);font-weight:600;text-align:right;">Received</span>
+        <span style="font-size:0.7rem;text-transform:uppercase;color:var(--brown-light);font-weight:600;text-align:right;">Cards</span>
+        ${data.history.map(h => {
+          const est = parseFloat(h.estimatedSales) || 0;
+          const act = parseFloat(h.actualSales) || 0;
+          const diff = act - est;
+          return `
+            <span style="color:var(--brown-dark)">${h.month}</span>
+            <span style="text-align:right;color:var(--brown-mid);">${est > 0 ? '$' + est.toFixed(2) : '—'}</span>
+            <span style="font-weight:600;color:var(--green);text-align:right;">$${act.toFixed(2)}</span>
+            <span style="color:var(--brown-mid);text-align:right;">${h.cardsSold ? h.cardsSold : '—'}</span>`;
+        }).join('')}
+      </div>
+      <div style="display:flex;gap:1rem;flex-wrap:wrap;padding:0.6rem 0.75rem;background:var(--cream);border-radius:var(--radius-sm);border:1px solid var(--border);">
+        <div style="font-size:0.8rem;"><span style="color:var(--brown-mid);">Total Received:</span> <strong style="color:var(--green);">$${totalActual.toFixed(2)}</strong></div>
+        <div style="font-size:0.8rem;"><span style="color:var(--brown-mid);">Total Estimated:</span> <strong style="color:var(--amber);">$${totalEstimated.toFixed(2)}</strong></div>
+        ${outstanding > 0 ? `<div style="font-size:0.8rem;"><span style="color:var(--brown-mid);">Outstanding:</span> <strong style="color:var(--coral);">$${outstanding.toFixed(2)}</strong></div>` : ''}
       </div>`;
   } catch (e) {
     container.innerHTML = '';
@@ -2080,8 +2144,16 @@ async function savePartnerInventory() {
   }
 }
 
-function openAddDesignToPartnerModal() {
-  if (!itemsCache || itemsCache.length === 0) { showToast('Loading designs...', ''); return; }
+async function openAddDesignToPartnerModal() {
+  // Reload items cache if stale/null (e.g. after saving inventory clears it)
+  if (!itemsCache || itemsCache.length === 0) {
+    showToast('Loading designs...', '');
+    try {
+      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=getItems`).then(r => r.json());
+      if (res.success) itemsCache = res.items.filter(i => i.ItemID);
+      else { showToast('Failed to load designs', ''); return; }
+    } catch (e) { showToast('Failed to load designs', ''); return; }
+  }
   const existing  = new Set(retailInventoryState.map(i => String(i.designId)));
   const available = itemsCache.filter(i => !existing.has(String(i.ItemID)) && i.Status !== 'Retired');
 
@@ -2175,6 +2247,153 @@ async function confirmAddDesignToPartner() {
     closeModal();
     renderInventoryCards();
     showToast(`${designName} added and saved!`, 'success');
+  } catch (e) {
+    status.className = 'form-status error'; status.textContent = '❌ ' + e.message;
+    if (btnWrap) btnWrap.style.display = '';
+  }
+}
+
+// ============================================================
+// STORE VISIT REPORT
+// ============================================================
+
+function previewVisitReport() {
+  // Gather pulled items and sold-out items from current inventory state
+  const pulledItems = retailInventoryState
+    .filter(item => (item.pulled || 0) > 0)
+    .map(item => ({
+      designId: item.designId,
+      designName: (item.designName || '').replace(/^\d+\s*—\s*/, ''),
+      qty: item.pulled,
+    }));
+
+  const soldItems = retailInventoryState
+    .filter(item => {
+      if (item.isNew) return false;
+      const finalStock = Math.max(0, (item.currentStock || 0) + (item.added || 0) - (item.pulled || 0));
+      const estSold = Math.max(0, item.previousStock - item.currentStock);
+      return finalStock === 0 && estSold > 0;
+    })
+    .map(item => {
+      const estSold = Math.max(0, item.previousStock - item.currentStock);
+      return {
+        designId: item.designId,
+        designName: (item.designName || '').replace(/^\d+\s*—\s*/, ''),
+        qty: estSold,
+        revenue: estSold * (parseFloat(item.unitPrice) || 0),
+      };
+    });
+
+  if (pulledItems.length === 0 && soldItems.length === 0) {
+    showToast('No pulled or sold-out items to report', '');
+    return;
+  }
+
+  const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+  // Build preview HTML
+  const pulledHtml = pulledItems.length ? `
+    <div style="font-weight:600;margin-bottom:0.5rem;color:var(--coral);">📦 Items Pulled (${pulledItems.length})</div>
+    <div style="background:var(--cream);border-radius:var(--radius-sm);padding:0.5rem;margin-bottom:1rem;">
+      ${pulledItems.map(i => `<div style="display:flex;justify-content:space-between;padding:0.3rem 0;border-bottom:1px solid var(--border);font-size:0.85rem;">
+        <span>#${i.designId} — ${i.designName}</span><strong style="color:var(--coral);">×${i.qty}</strong>
+      </div>`).join('')}
+    </div>` : '';
+
+  const soldHtml = soldItems.length ? `
+    <div style="font-weight:600;margin-bottom:0.5rem;color:var(--green);">💰 Sold Out / Removed (${soldItems.length})</div>
+    <div style="background:var(--cream);border-radius:var(--radius-sm);padding:0.5rem;margin-bottom:1rem;">
+      ${soldItems.map(i => `<div style="display:flex;justify-content:space-between;padding:0.3rem 0;border-bottom:1px solid var(--border);font-size:0.85rem;">
+        <span>#${i.designId} — ${i.designName} (×${i.qty})</span><strong style="color:var(--green);">$${i.revenue.toFixed(2)}</strong>
+      </div>`).join('')}
+    </div>` : '';
+
+  // Get partner emails from cache
+  const partnerMeta = window._currentPartnerMeta || {};
+  const emails = [];
+  if (partnerMeta.contactEmail) emails.push({ label: `${partnerMeta.contactName || 'Contact'} — ${partnerMeta.contactEmail}`, value: partnerMeta.contactEmail });
+
+  openModal(`
+    <div class="modal-title">📧 Send Visit Report</div>
+    <div style="font-size:0.85rem;color:var(--brown-mid);margin-bottom:1rem;">${retailCurrentPartnerName} · ${today}</div>
+
+    <div style="margin-bottom:1rem;">
+      <div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--brown-mid);font-weight:700;margin-bottom:0.5rem;">Preview</div>
+      <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:1rem;max-height:250px;overflow-y:auto;background:white;">
+        ${pulledHtml}
+        ${soldHtml}
+      </div>
+    </div>
+
+    <div class="form-field">
+      <label class="field-label">Send To</label>
+      <select class="field-input" id="visit-report-email-select" onchange="if(this.value==='custom'){document.getElementById('visit-report-email-custom').style.display='block';}else{document.getElementById('visit-report-email-custom').style.display='none';}">
+        ${emails.map(e => `<option value="${e.value}">${e.label}</option>`).join('')}
+        <option value="custom">Enter email manually...</option>
+      </select>
+      <input class="field-input" type="email" id="visit-report-email-custom" placeholder="email@example.com" style="display:none;margin-top:0.4rem;">
+    </div>
+
+    <div class="form-field" style="margin-top:0.5rem;">
+      <label class="field-label">Add a Note (optional)</label>
+      <textarea class="field-input" id="visit-report-note" rows="2" placeholder="Any notes for the partner..."></textarea>
+    </div>
+
+    <div id="visit-report-btn-wrap" style="margin-top:0.75rem;">
+      <button class="btn btn-primary" style="width:100%;" onclick="sendVisitReport()">📧 Send Report</button>
+    </div>
+    <div id="visit-report-status" class="form-status"></div>
+  `);
+}
+
+async function sendVisitReport() {
+  const selectEl = document.getElementById('visit-report-email-select');
+  const customEl = document.getElementById('visit-report-email-custom');
+  const recipientEmail = selectEl.value === 'custom' ? customEl.value.trim() : selectEl.value;
+  const note = document.getElementById('visit-report-note')?.value.trim() || '';
+  const status = document.getElementById('visit-report-status');
+  const btnWrap = document.getElementById('visit-report-btn-wrap');
+
+  if (!recipientEmail) {
+    status.className = 'form-status error'; status.textContent = '❌ Please enter an email address.';
+    return;
+  }
+
+  const pulledItems = retailInventoryState
+    .filter(item => (item.pulled || 0) > 0)
+    .map(item => ({ designId: item.designId, designName: (item.designName || '').replace(/^\d+\s*—\s*/, ''), qty: item.pulled }));
+
+  const soldItems = retailInventoryState
+    .filter(item => {
+      if (item.isNew) return false;
+      const finalStock = Math.max(0, (item.currentStock || 0) + (item.added || 0) - (item.pulled || 0));
+      const estSold = Math.max(0, item.previousStock - item.currentStock);
+      return finalStock === 0 && estSold > 0;
+    })
+    .map(item => {
+      const estSold = Math.max(0, item.previousStock - item.currentStock);
+      return { designId: item.designId, designName: (item.designName || '').replace(/^\d+\s*—\s*/, ''), qty: estSold, revenue: estSold * (parseFloat(item.unitPrice) || 0) };
+    });
+
+  if (btnWrap) btnWrap.style.display = 'none';
+  status.className = 'form-status loading'; status.textContent = 'Sending...';
+
+  try {
+    const r = await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({
+      action: 'sendVisitReport',
+      recipientEmail,
+      partnerName: retailCurrentPartnerName,
+      visitDate: new Date().toLocaleDateString('en-CA'),
+      pulledItems,
+      soldItems,
+      note,
+    })});
+    const result = await r.json();
+    if (result.success) {
+      status.className = 'form-status success'; status.textContent = '✅ Report sent!';
+      showToast('Visit report sent!', 'success');
+      setTimeout(closeModal, 1500);
+    } else throw new Error(result.error);
   } catch (e) {
     status.className = 'form-status error'; status.textContent = '❌ ' + e.message;
     if (btnWrap) btnWrap.style.display = '';

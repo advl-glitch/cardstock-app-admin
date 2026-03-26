@@ -87,6 +87,7 @@ function doPost(e) {
     case 'updatePartnerInventory':   result = updatePartnerInventory(payload); break;
     case 'logActualSale':            result = logActualSale(payload); break;
     case 'logMarketSale':            result = logMarketSale(payload); break;
+    case 'sendVisitReport':          result = sendVisitReport(payload); break;
     default:
       result = { success: false, error: 'Invalid action: ' + action };
   }
@@ -906,6 +907,41 @@ function updatePartnerInventory(payload) {
       }
     }
 
+    // ── 4. Roll up estimated sales into RetailSales for this visit ──
+    const totalEstimatedRevenue = updates.reduce((sum, u) => {
+      const estSold = parseInt(u.estimatedSold) || 0;
+      return sum + (estSold * (parseFloat(u.unitPrice) || 0));
+    }, 0);
+    const totalEstimatedCards = updates.reduce((sum, u) => sum + (parseInt(u.estimatedSold) || 0), 0);
+
+    if (totalEstimatedRevenue > 0 || totalEstimatedCards > 0) {
+      let salesSheet = SPREADSHEET.getSheetByName('RetailSales');
+      if (!salesSheet) {
+        salesSheet = SPREADSHEET.insertSheet('RetailSales');
+        salesSheet.appendRow(['PartnerID', 'PartnerName', 'Month', 'ActualSales', 'EstimatedSales', 'CardsSold', 'LoggedAt']);
+      }
+      const visitMonth = today.substring(0, 7); // "YYYY-MM"
+      const salesData = salesSheet.getDataRange().getValues();
+      const salesHeaders = salesData[0];
+      const spIdx = salesHeaders.indexOf('PartnerID');
+      const smIdx = salesHeaders.indexOf('Month');
+      const seIdx = salesHeaders.indexOf('EstimatedSales');
+
+      let found = false;
+      for (let i = 1; i < salesData.length; i++) {
+        if (String(salesData[i][spIdx]) === String(partnerId) && String(salesData[i][smIdx]) === String(visitMonth)) {
+          // Update estimated sales for existing row
+          const existing = parseFloat(salesData[i][seIdx]) || 0;
+          salesSheet.getRange(i + 1, seIdx + 1).setValue(existing + totalEstimatedRevenue);
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        salesSheet.appendRow([partnerId, partnerName, visitMonth, 0, totalEstimatedRevenue, 0, new Date().toISOString()]);
+      }
+    }
+
     return { success: true };
   } catch (e) {
     return { success: false, error: e.message };
@@ -1519,6 +1555,110 @@ function sendRestockNotification(notifData) {
     });
 
     return { success: true, message: 'Restock notification sent to ' + notifData.partnerEmail };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+
+// =============================================================================
+// STORE VISIT REPORT EMAIL
+// =============================================================================
+
+function sendVisitReport(payload) {
+  try {
+    const { recipientEmail, partnerName, visitDate, pulledItems, soldItems, note } = payload;
+    if (!recipientEmail) return { success: false, error: 'No email provided.' };
+
+    const pulledRows = (pulledItems || []).map(item => `
+      <tr>
+        <td style="padding:10px 12px;border-bottom:1px solid #EDE7D6;font-family:Georgia,serif;color:#4AABAB;font-weight:700;font-size:0.8rem;">#${item.designId}</td>
+        <td style="padding:10px 12px;border-bottom:1px solid #EDE7D6;color:#3D2B1F;">${item.designName}</td>
+        <td style="padding:10px 12px;border-bottom:1px solid #EDE7D6;text-align:center;font-weight:700;color:#E05C45;font-size:1.1rem;">${item.qty}</td>
+      </tr>`).join('');
+
+    const soldRows = (soldItems || []).map(item => `
+      <tr>
+        <td style="padding:10px 12px;border-bottom:1px solid #EDE7D6;font-family:Georgia,serif;color:#4AABAB;font-weight:700;font-size:0.8rem;">#${item.designId}</td>
+        <td style="padding:10px 12px;border-bottom:1px solid #EDE7D6;color:#3D2B1F;">${item.designName}</td>
+        <td style="padding:10px 12px;border-bottom:1px solid #EDE7D6;text-align:center;font-weight:700;color:#5A9E6F;font-size:1.1rem;">${item.qty}</td>
+        <td style="padding:10px 12px;border-bottom:1px solid #EDE7D6;text-align:right;color:#3D2B1F;">$${(item.revenue || 0).toFixed(2)}</td>
+      </tr>`).join('');
+
+    const formattedDate = new Date(visitDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+    const body = `
+      <div style="font-family:Georgia,serif;max-width:620px;margin:0 auto;color:#3D2B1F;background:#F5F0E4;">
+        <div style="background:#2C1F17;padding:28px 32px;text-align:center;border-radius:12px 12px 0 0;">
+          <div style="font-size:1.5rem;color:#F0E6D3;font-family:Georgia,serif;letter-spacing:0.04em;">✦ Prints by Angel</div>
+          <div style="color:#C4A882;font-size:0.8rem;margin-top:4px;text-transform:uppercase;letter-spacing:0.12em;">Store Visit Report</div>
+        </div>
+
+        <div style="padding:28px 32px;background:#F5F0E4;">
+          <p style="font-size:1rem;color:#3D2B1F;margin:0 0 8px;">Hi ${partnerName},</p>
+          <p style="font-size:0.9rem;color:#6B4C3B;margin:0 0 20px;line-height:1.6;">
+            Here's a summary of today's store visit. Please keep this for your records.
+          </p>
+
+          <div style="background:white;border-radius:10px;padding:14px 18px;margin-bottom:24px;border-left:4px solid #4AABAB;">
+            <div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.1em;color:#A07860;font-weight:700;margin-bottom:4px;">Visit Date</div>
+            <div style="font-size:1.1rem;color:#3D2B1F;font-weight:600;">${formattedDate}</div>
+          </div>
+
+          ${pulledRows ? `
+          <div style="font-family:Georgia,serif;font-size:1rem;color:#3D2B1F;margin-bottom:10px;font-weight:600;">📦 Items Pulled</div>
+          <table style="width:100%;border-collapse:collapse;background:white;border-radius:10px;overflow:hidden;margin-bottom:20px;">
+            <thead>
+              <tr style="background:#E05C45;color:white;">
+                <th style="padding:10px 12px;text-align:left;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;">Design #</th>
+                <th style="padding:10px 12px;text-align:left;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;">Name</th>
+                <th style="padding:10px 12px;text-align:center;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;">Qty Pulled</th>
+              </tr>
+            </thead>
+            <tbody>${pulledRows}</tbody>
+          </table>` : ''}
+
+          ${soldRows ? `
+          <div style="font-family:Georgia,serif;font-size:1rem;color:#3D2B1F;margin-bottom:10px;font-weight:600;">💰 Items Sold Out (Removed from Shelf)</div>
+          <table style="width:100%;border-collapse:collapse;background:white;border-radius:10px;overflow:hidden;margin-bottom:24px;">
+            <thead>
+              <tr style="background:#5A9E6F;color:white;">
+                <th style="padding:10px 12px;text-align:left;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;">Design #</th>
+                <th style="padding:10px 12px;text-align:left;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;">Name</th>
+                <th style="padding:10px 12px;text-align:center;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;">Qty Sold</th>
+                <th style="padding:10px 12px;text-align:right;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;">Revenue</th>
+              </tr>
+            </thead>
+            <tbody>${soldRows}</tbody>
+          </table>` : ''}
+
+          ${!pulledRows && !soldRows ? `
+          <p style="font-size:0.9rem;color:#6B4C3B;font-style:italic;">No items were pulled or sold out during this visit.</p>` : ''}
+
+          ${note ? `
+          <div style="background:white;border-radius:10px;padding:14px 18px;margin-bottom:24px;border-left:4px solid #E8933A;">
+            <div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.1em;color:#A07860;font-weight:700;margin-bottom:6px;">Note</div>
+            <div style="font-size:0.9rem;color:#3D2B1F;line-height:1.6;">${note}</div>
+          </div>` : ''}
+
+          <p style="font-size:0.9rem;color:#6B4C3B;margin-top:8px;line-height:1.6;">
+            Thank you for carrying Prints by Angel! 🖤
+          </p>
+          <p style="font-size:0.9rem;color:#3D2B1F;margin-top:16px;">— Angel</p>
+        </div>
+
+        <div style="background:#2C1F17;padding:16px 32px;text-align:center;border-radius:0 0 12px 12px;">
+          <div style="font-size:0.75rem;color:#C4A882;">✦ Prints by Angel · Handmade Letterpress Cards</div>
+        </div>
+      </div>`;
+
+    MailApp.sendEmail({
+      to: recipientEmail,
+      subject: `✦ Store Visit Report — ${partnerName} · ${formattedDate}`,
+      htmlBody: body
+    });
+
+    return { success: true, message: 'Visit report sent to ' + recipientEmail };
   } catch (e) {
     return { success: false, error: e.message };
   }
