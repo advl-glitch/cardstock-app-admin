@@ -1804,7 +1804,7 @@ async function loadPartnerInventoryView(partnerId, partnerMeta) {
       <div class="card" style="padding:1rem;">
         <div class="form-grid">
           <div class="form-field">
-            <label class="field-label">Month</label>
+            <label class="field-label">Month <span style="font-weight:400;font-size:0.7rem;color:var(--brown-light);">(when cards sold, not payment date)</span></label>
             <div style="display:flex;gap:0.4rem;">
               <select class="field-input" id="actual-sale-month-m" style="flex:1;">
                 ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].map((m,i) => `<option value="${String(i+1).padStart(2,'0')}" ${i === new Date().getMonth() ? 'selected' : ''}>${m}</option>`).join('')}

@@ -49,6 +49,7 @@ function doGet(e) {
     case 'getSalesReportData':   result = getSalesReportData(e.parameter); break;
     case 'migrateToPartnerStock': result = migrateToPartnerStock(); break;
     case 'getLatestVisit':       result = getLatestVisit(e.parameter.partnerId); break;
+    case 'backfillEstimatedSales': result = backfillEstimatedSales(); break;
     default:
       result = { success: false, error: 'Invalid action: ' + action };
   }
@@ -1013,6 +1014,79 @@ function logActualSale(payload) {
     // Append new row
     sheet.appendRow([partnerId, partnerName, month, actualSales, 0, cardsSold || 0, new Date().toISOString()]);
     return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+// =============================================================================
+// BACKFILL ESTIMATED SALES
+// =============================================================================
+
+function backfillEstimatedSales() {
+  try {
+    const logSheet = SPREADSHEET.getSheetByName('retailInventory');
+    if (!logSheet) return { success: true, message: 'No retailInventory sheet found.' };
+
+    let salesSheet = SPREADSHEET.getSheetByName('RetailSales');
+    if (!salesSheet) {
+      salesSheet = SPREADSHEET.insertSheet('RetailSales');
+      salesSheet.appendRow(['PartnerID', 'PartnerName', 'Month', 'ActualSales', 'EstimatedSales', 'CardsSold', 'LoggedAt']);
+    }
+
+    const logData = logSheet.getDataRange().getValues();
+    const logHeaders = logData[0];
+    const lIdx = {};
+    logHeaders.forEach((h, i) => { lIdx[h] = i; });
+
+    // Aggregate estimated revenue per partner per month from visit logs
+    const estimates = {}; // key: "partnerId|YYYY-MM" → { revenue, partnerName }
+    for (let i = 1; i < logData.length; i++) {
+      const partnerId = String(logData[i][lIdx['LocationID']] || '');
+      const partnerName = String(logData[i][lIdx['PartnerName']] || '');
+      const visitDate = String(logData[i][lIdx['VisitDate']] || '');
+      const estSold = parseInt(logData[i][lIdx['EstimatedSold']]) || 0;
+      const unitPrice = parseFloat(logData[i][lIdx['UnitPrice']]) || 0;
+
+      if (!partnerId || !visitDate || estSold <= 0) continue;
+
+      const month = visitDate.substring(0, 7); // "YYYY-MM"
+      const key = partnerId + '|' + month;
+      if (!estimates[key]) estimates[key] = { partnerId, partnerName, month, revenue: 0 };
+      estimates[key].revenue += estSold * unitPrice;
+    }
+
+    // Upsert into RetailSales
+    const salesData = salesSheet.getDataRange().getValues();
+    const salesHeaders = salesData[0];
+    const spIdx = salesHeaders.indexOf('PartnerID');
+    const smIdx = salesHeaders.indexOf('Month');
+    const seIdx = salesHeaders.indexOf('EstimatedSales');
+
+    let updated = 0;
+    let created = 0;
+
+    Object.values(estimates).forEach(est => {
+      let found = false;
+      for (let i = 1; i < salesData.length; i++) {
+        if (String(salesData[i][spIdx]) === est.partnerId && String(salesData[i][smIdx]) === est.month) {
+          // Only update if estimated is currently 0
+          if ((parseFloat(salesData[i][seIdx]) || 0) === 0) {
+            salesSheet.getRange(i + 1, seIdx + 1).setValue(est.revenue);
+            updated++;
+          }
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        salesSheet.appendRow([est.partnerId, est.partnerName, est.month, 0, est.revenue, 0, new Date().toISOString()]);
+        salesData.push([est.partnerId, est.partnerName, est.month, 0, est.revenue, 0, '']); // keep local cache in sync
+        created++;
+      }
+    });
+
+    return { success: true, message: `Backfill complete. Updated: ${updated}, Created: ${created}` };
   } catch (e) {
     return { success: false, error: e.message };
   }
