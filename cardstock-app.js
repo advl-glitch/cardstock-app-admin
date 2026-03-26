@@ -1885,7 +1885,7 @@ async function loadSalesHistory(partnerId) {
         <span style="font-size:0.7rem;text-transform:uppercase;color:var(--brown-light);font-weight:600;">Month</span>
         <span style="font-size:0.7rem;text-transform:uppercase;color:var(--brown-light);font-weight:600;text-align:right;">Estimated</span>
         <span style="font-size:0.7rem;text-transform:uppercase;color:var(--brown-light);font-weight:600;text-align:right;">Received</span>
-        <span style="font-size:0.7rem;text-transform:uppercase;color:var(--brown-light);font-weight:600;text-align:right;">Cards</span>
+        <span style="font-size:0.7rem;text-transform:uppercase;color:var(--brown-light);font-weight:600;text-align:right;">Est. Cards Sold</span>
         ${data.history.map(h => {
           const est = parseFloat(h.estimatedSales) || 0;
           const act = parseFloat(h.actualSales) || 0;

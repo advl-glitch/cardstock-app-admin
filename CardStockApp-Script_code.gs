@@ -1158,20 +1158,27 @@ function backfillEstimatedSales() {
     logHeaders.forEach((h, i) => { lIdx[h] = i; });
 
     // Aggregate estimated revenue per partner per month from visit logs
+    const normalizeDate = (val) => {
+      if (val instanceof Date) return val.getFullYear() + '-' + String(val.getMonth() + 1).padStart(2, '0');
+      const s = String(val);
+      const match = s.match(/(\d{4})-(\d{1,2})/);
+      if (match) return match[1] + '-' + match[2].padStart(2, '0');
+      return null;
+    };
+
     const estimates = {}; // key: "partnerId|YYYY-MM" → { revenue, partnerName }
     for (let i = 1; i < logData.length; i++) {
       const partnerId = String(logData[i][lIdx['LocationID']] || '');
       const partnerName = String(logData[i][lIdx['PartnerName']] || '');
-      const visitDate = String(logData[i][lIdx['VisitDate']] || '');
+      const month = normalizeDate(logData[i][lIdx['VisitDate']]);
       const estSold = parseInt(logData[i][lIdx['EstimatedSold']]) || 0;
       const unitPrice = parseFloat(logData[i][lIdx['UnitPrice']]) || 0;
 
-      if (!partnerId || !visitDate || estSold <= 0) continue;
-
-      const month = visitDate.substring(0, 7); // "YYYY-MM"
+      if (!partnerId || !month || estSold <= 0) continue;
       const key = partnerId + '|' + month;
-      if (!estimates[key]) estimates[key] = { partnerId, partnerName, month, revenue: 0 };
+      if (!estimates[key]) estimates[key] = { partnerId, partnerName, month, revenue: 0, cards: 0 };
       estimates[key].revenue += estSold * unitPrice;
+      estimates[key].cards += estSold;
     }
 
     // Upsert into RetailSales
@@ -1184,13 +1191,23 @@ function backfillEstimatedSales() {
     let updated = 0;
     let created = 0;
 
+    const normMonth = (val) => {
+      if (val instanceof Date) return val.getFullYear() + '-' + String(val.getMonth() + 1).padStart(2, '0');
+      const s = String(val); const m = s.match(/(\d{4})-(\d{1,2})/); return m ? m[1] + '-' + m[2].padStart(2, '0') : s;
+    };
+
     Object.values(estimates).forEach(est => {
       let found = false;
       for (let i = 1; i < salesData.length; i++) {
-        if (String(salesData[i][spIdx]) === est.partnerId && String(salesData[i][smIdx]) === est.month) {
+        if (String(salesData[i][spIdx]) === est.partnerId && normMonth(salesData[i][smIdx]) === est.month) {
           // Only update if estimated is currently 0
           if ((parseFloat(salesData[i][seIdx]) || 0) === 0) {
             salesSheet.getRange(i + 1, seIdx + 1).setValue(est.revenue);
+            // Only set cards if not manually entered
+            const existingCards = parseInt(salesData[i][salesHeaders.indexOf('CardsSold')]) || 0;
+            if (existingCards === 0) {
+              salesSheet.getRange(i + 1, salesHeaders.indexOf('CardsSold') + 1).setValue(est.cards);
+            }
             updated++;
           }
           found = true;
@@ -1199,9 +1216,9 @@ function backfillEstimatedSales() {
       }
       if (!found) {
         const newRow = salesSheet.getLastRow() + 1;
-        salesSheet.appendRow([est.partnerId, est.partnerName, est.month, 0, est.revenue, 0, new Date().toISOString()]);
+        salesSheet.appendRow([est.partnerId, est.partnerName, est.month, 0, est.revenue, est.cards, new Date().toISOString()]);
         salesSheet.getRange(newRow, smIdx + 1).setNumberFormat('@').setValue(est.month);
-        salesData.push([est.partnerId, est.partnerName, est.month, 0, est.revenue, 0, '']);
+        salesData.push([est.partnerId, est.partnerName, est.month, 0, est.revenue, est.cards, '']);
         created++;
       }
     });
