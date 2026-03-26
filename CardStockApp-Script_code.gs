@@ -1659,24 +1659,26 @@ function sendVisitReport(payload) {
     const soldOutItems = entries.filter(e => e.endOnShelf === 0 && e.startOnShelf > 0).map(e => ({ designId: e.itemId, designName: e.designName, qty: e.startOnShelf }));
     const addedItems = entries.filter(e => (e.added || 0) > 0).map(e => ({ designId: e.itemId, designName: e.designName, qty: e.added }));
 
+    const stripNum = (name) => String(name || '').replace(/^\d+\s*[—–-]\s*/, '');
+
     const addedRows = (addedItems || []).map(item => `
       <tr>
         <td style="padding:10px 12px;border-bottom:1px solid #EDE7D6;font-family:Georgia,serif;color:#4AABAB;font-weight:700;font-size:0.8rem;">#${item.designId}</td>
-        <td style="padding:10px 12px;border-bottom:1px solid #EDE7D6;color:#3D2B1F;">${item.designName}</td>
+        <td style="padding:10px 12px;border-bottom:1px solid #EDE7D6;color:#3D2B1F;">${stripNum(item.designName)}</td>
         <td style="padding:10px 12px;border-bottom:1px solid #EDE7D6;text-align:center;font-weight:700;color:#4AABAB;font-size:1.1rem;">${item.qty}</td>
       </tr>`).join('');
 
     const pulledRows = (pulledItems || []).map(item => `
       <tr>
         <td style="padding:10px 12px;border-bottom:1px solid #EDE7D6;font-family:Georgia,serif;color:#4AABAB;font-weight:700;font-size:0.8rem;">#${item.designId}</td>
-        <td style="padding:10px 12px;border-bottom:1px solid #EDE7D6;color:#3D2B1F;">${item.designName}</td>
+        <td style="padding:10px 12px;border-bottom:1px solid #EDE7D6;color:#3D2B1F;">${stripNum(item.designName)}</td>
         <td style="padding:10px 12px;border-bottom:1px solid #EDE7D6;text-align:center;font-weight:700;color:#E05C45;font-size:1.1rem;">${item.qty}</td>
       </tr>`).join('');
 
     const soldOutRows = (soldOutItems || []).map(item => `
       <tr>
         <td style="padding:10px 12px;border-bottom:1px solid #EDE7D6;font-family:Georgia,serif;color:#4AABAB;font-weight:700;font-size:0.8rem;">#${item.designId}</td>
-        <td style="padding:10px 12px;border-bottom:1px solid #EDE7D6;color:#3D2B1F;">${item.designName}</td>
+        <td style="padding:10px 12px;border-bottom:1px solid #EDE7D6;color:#3D2B1F;">${stripNum(item.designName)}</td>
         <td style="padding:10px 12px;border-bottom:1px solid #EDE7D6;text-align:center;font-weight:700;color:#5A9E6F;font-size:1.1rem;">${item.qty}</td>
       </tr>`).join('');
 
@@ -1690,12 +1692,15 @@ function sendVisitReport(payload) {
       stockHeaders.forEach((h, i) => { sIdx[h] = i; });
       const shelfItems = stockData.slice(1)
         .filter(row => String(row[sIdx['LocationID']]) === String(partnerId) && (parseInt(row[sIdx['CurrentStock']]) || 0) > 0);
-      shelfRows = shelfItems.map(row => `
+      shelfRows = shelfItems.map(row => {
+        const cleanName = String(row[sIdx['DesignName']] || '').replace(/^\d+\s*[—–-]\s*/, '');
+        return `
         <tr>
           <td style="padding:8px 12px;border-bottom:1px solid #EDE7D6;font-family:Georgia,serif;color:#4AABAB;font-weight:700;font-size:0.8rem;">#${row[sIdx['ItemID']]}</td>
-          <td style="padding:8px 12px;border-bottom:1px solid #EDE7D6;color:#3D2B1F;">${row[sIdx['DesignName']]}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #EDE7D6;color:#3D2B1F;">${cleanName}</td>
           <td style="padding:8px 12px;border-bottom:1px solid #EDE7D6;text-align:center;font-weight:700;color:#3D2B1F;">${row[sIdx['CurrentStock']]}</td>
-        </tr>`).join('');
+        </tr>`;
+      }).join('');
     }
 
     const formattedDate = new Date(visitDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
