@@ -1045,86 +1045,82 @@ function fixRetailSalesSheet() {
     let sheet = SPREADSHEET.getSheetByName('RetailSales');
     if (!sheet) return { success: false, error: 'RetailSales sheet not found.' };
 
-    const data = sheet.getDataRange().getValues();
-    const headers = data[0];
     const log = [];
 
-    // Step 1: Check if EstimatedSales column exists
-    const hasEstimated = headers.indexOf('EstimatedSales') !== -1;
-
-    if (!hasEstimated) {
-      // Insert EstimatedSales column after ActualSales (position 5, 1-based)
-      const actualIdx = headers.indexOf('ActualSales');
-      const insertPos = actualIdx + 2; // 1-based, after ActualSales
+    // Step 1: Ensure EstimatedSales column exists
+    const rawData = sheet.getDataRange().getValues();
+    const rawHeaders = rawData[0];
+    if (rawHeaders.indexOf('EstimatedSales') === -1) {
+      const actualIdx = rawHeaders.indexOf('ActualSales');
       sheet.insertColumnAfter(actualIdx + 1);
-      sheet.getRange(1, insertPos).setValue('EstimatedSales');
-      // Set all existing rows to 0 for EstimatedSales
-      for (let i = 2; i <= data.length; i++) {
-        sheet.getRange(i, insertPos).setValue(0);
+      sheet.getRange(1, actualIdx + 2).setValue('EstimatedSales');
+      for (let i = 2; i <= rawData.length; i++) {
+        sheet.getRange(i, actualIdx + 2).setValue(0);
       }
-      log.push('Added EstimatedSales column at position ' + insertPos);
-    } else {
-      log.push('EstimatedSales column already exists');
+      log.push('Added EstimatedSales column');
     }
 
-    // Re-read after potential column insert
-    const freshData = sheet.getDataRange().getValues();
-    const freshHeaders = freshData[0];
-    const mIdx = freshHeaders.indexOf('Month');
+    // Step 2: Re-read everything, normalize months, merge duplicates
+    const data = sheet.getDataRange().getValues();
+    const headers = data[0];
+    const idx = {};
+    headers.forEach((h, i) => { idx[h] = i; });
 
-    // Step 2: Normalize month format — convert date objects to YYYY-MM strings
-    let monthsFixed = 0;
-    for (let i = 1; i < freshData.length; i++) {
-      const val = freshData[i][mIdx];
-      let normalized;
-      if (val instanceof Date) {
-        const y = val.getFullYear();
-        const m = String(val.getMonth() + 1).padStart(2, '0');
-        normalized = y + '-' + m;
-      } else {
-        const str = String(val);
-        // Handle "2026-02-01 00:00:00" or similar
-        if (str.length > 7) {
-          normalized = str.substring(0, 7);
-        } else {
-          normalized = str; // already YYYY-MM
-        }
+    const normalizeMonth = (val) => {
+      if (val instanceof Date) return val.getFullYear() + '-' + String(val.getMonth() + 1).padStart(2, '0');
+      const s = String(val);
+      // Match YYYY-MM-DD or similar
+      const match = s.match(/(\d{4})-(\d{1,2})/);
+      if (match) return match[1] + '-' + match[2].padStart(2, '0');
+      return s;
+    };
+
+    // Collect all rows into merged map: key = partnerId|YYYY-MM
+    const merged = {};
+    for (let i = 1; i < data.length; i++) {
+      const partnerId = String(data[i][idx['PartnerID']] || '').trim();
+      const partnerName = String(data[i][idx['PartnerName']] || '').trim();
+      const month = normalizeMonth(data[i][idx['Month']]);
+      const actual = parseFloat(data[i][idx['ActualSales']]) || 0;
+      const estimated = parseFloat(data[i][idx['EstimatedSales']]) || 0;
+      const cards = parseInt(data[i][idx['CardsSold']]) || 0;
+
+      if (!partnerId || !month || month.length < 7) continue;
+
+      const key = partnerId + '|' + month;
+      if (!merged[key]) {
+        merged[key] = { partnerId, partnerName, month, actual: 0, estimated: 0, cards: 0 };
       }
-      if (String(val) !== normalized) {
-        sheet.getRange(i + 1, mIdx + 1).setValue(normalized);
-        monthsFixed++;
-      }
+      // Take the max of actual sales (don't double-count), sum estimated, max cards
+      merged[key].actual = Math.max(merged[key].actual, actual);
+      merged[key].estimated += estimated;
+      merged[key].cards = Math.max(merged[key].cards, cards);
+      if (partnerName) merged[key].partnerName = partnerName;
     }
-    log.push('Normalized ' + monthsFixed + ' month values to YYYY-MM');
 
-    // Step 3: Delete any rows that were created by the bad backfill
-    // These are rows where ActualSales=0 and the data looks shifted
-    // We'll identify them as rows where EstimatedSales got written into wrong columns
-    // Safest: delete all rows where ActualSales=0 AND there's no manually entered data
-    // Then re-run backfill fresh
-    const reRead = sheet.getDataRange().getValues();
-    const rHeaders = reRead[0];
-    const rActIdx = rHeaders.indexOf('ActualSales');
-    const rEstIdx = rHeaders.indexOf('EstimatedSales');
-    const rCardsIdx = rHeaders.indexOf('CardsSold');
-    const rLogIdx = rHeaders.indexOf('LoggedAt');
-
-    const rowsToDelete = [];
-    for (let i = 1; i < reRead.length; i++) {
-      const actual = parseFloat(reRead[i][rActIdx]) || 0;
-      const cards = parseInt(reRead[i][rCardsIdx]) || 0;
-      // If no actual sales logged and no cards sold, this was a backfill-only row — safe to delete and recreate
-      if (actual === 0 && cards === 0) {
-        rowsToDelete.push(i + 1);
-      }
+    // Step 3: Clear sheet and rewrite with clean data
+    const rowCount = sheet.getLastRow();
+    if (rowCount > 1) {
+      sheet.getRange(2, 1, rowCount - 1, sheet.getLastColumn()).clear();
     }
-    // Delete bottom-up
-    rowsToDelete.sort((a, b) => b - a).forEach(row => sheet.deleteRow(row));
-    log.push('Deleted ' + rowsToDelete.length + ' backfill-only rows (will be recreated by backfill)');
 
-    // Step 4: Run backfill fresh
+    const entries = Object.values(merged).sort((a, b) => b.month.localeCompare(a.month));
+    entries.forEach((e, i) => {
+      const row = i + 2;
+      sheet.getRange(row, idx['PartnerID'] + 1).setValue(e.partnerId);
+      sheet.getRange(row, idx['PartnerName'] + 1).setValue(e.partnerName);
+      sheet.getRange(row, idx['Month'] + 1).setValue(e.month);
+      sheet.getRange(row, idx['ActualSales'] + 1).setValue(e.actual);
+      sheet.getRange(row, idx['EstimatedSales'] + 1).setValue(e.estimated);
+      sheet.getRange(row, idx['CardsSold'] + 1).setValue(e.cards);
+      sheet.getRange(row, idx['LoggedAt'] + 1).setValue(new Date().toISOString());
+    });
+
+    log.push('Merged into ' + entries.length + ' clean rows from ' + (data.length - 1) + ' original rows');
+
+    // Step 4: Re-run backfill to fill any missing estimated data
     const backfillResult = backfillEstimatedSales();
-    log.push('Backfill result: ' + (backfillResult.message || backfillResult.error || 'done'));
+    log.push('Backfill: ' + (backfillResult.message || backfillResult.error || 'done'));
 
     return { success: true, log };
   } catch (e) {
