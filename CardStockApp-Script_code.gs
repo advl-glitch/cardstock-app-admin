@@ -1112,8 +1112,9 @@ function fixRetailSalesSheet() {
       }
       // Take the max of actual sales (don't double-count), sum estimated, max cards
       merged[key].actual = Math.max(merged[key].actual, actual);
-      merged[key].estimated += estimated;
-      merged[key].cards = Math.max(merged[key].cards, cards);
+      // Don't carry over old estimated — backfill will recalculate with splits
+      merged[key].estimated = 0;
+      merged[key].cards = 0;
       if (partnerName) merged[key].partnerName = partnerName;
     }
 
