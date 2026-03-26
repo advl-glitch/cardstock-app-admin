@@ -950,7 +950,9 @@ function updatePartnerInventory(payload) {
         }
       }
       if (!found) {
+        const newRow = salesSheet.getLastRow() + 1;
         salesSheet.appendRow([partnerId, partnerName, visitMonth, 0, totalEstimatedRevenue, 0, new Date().toISOString()]);
+        salesSheet.getRange(newRow, smIdx + 1).setNumberFormat('@').setValue(visitMonth);
       }
     }
 
@@ -1028,8 +1030,10 @@ function logActualSale(payload) {
       }
     }
 
-    // Append new row
+    // Append new row — force month column to text format
+    const newRow = sheet.getLastRow() + 1;
     sheet.appendRow([partnerId, partnerName, month, actualSales, 0, cardsSold || 0, new Date().toISOString()]);
+    sheet.getRange(newRow, headers.indexOf('Month') + 1).setNumberFormat('@').setValue(month);
     return { success: true };
   } catch (e) {
     return { success: false, error: e.message };
@@ -1068,11 +1072,10 @@ function fixRetailSalesSheet() {
 
     const normalizeMonth = (val) => {
       if (val instanceof Date) return val.getFullYear() + '-' + String(val.getMonth() + 1).padStart(2, '0');
-      const s = String(val);
-      // Match YYYY-MM-DD or similar
-      const match = s.match(/(\d{4})-(\d{1,2})/);
-      if (match) return match[1] + '-' + match[2].padStart(2, '0');
-      return s;
+      const s = String(val).trim();
+      const isoMatch = s.match(/(\d{4})-(\d{1,2})/);
+      if (isoMatch) return isoMatch[1] + '-' + isoMatch[2].padStart(2, '0');
+      return null; // can't parse — skip this row
     };
 
     // Collect all rows into merged map: key = partnerId|YYYY-MM
@@ -1085,7 +1088,7 @@ function fixRetailSalesSheet() {
       const estimated = parseFloat(data[i][idx['EstimatedSales']]) || 0;
       const cards = parseInt(data[i][idx['CardsSold']]) || 0;
 
-      if (!partnerId || !month || month.length < 7) continue;
+      if (!partnerId || !month || month.length < 7 || !month.match(/^\d{4}-\d{2}$/)) continue;
 
       const key = partnerId + '|' + month;
       if (!merged[key]) {
@@ -1105,6 +1108,12 @@ function fixRetailSalesSheet() {
     }
 
     const entries = Object.values(merged).sort((a, b) => b.month.localeCompare(a.month));
+
+    // Set Month column to plain text format so Sheets doesn't convert YYYY-MM to dates
+    if (entries.length > 0) {
+      sheet.getRange(2, idx['Month'] + 1, Math.max(entries.length, 1), 1).setNumberFormat('@');
+    }
+
     entries.forEach((e, i) => {
       const row = i + 2;
       sheet.getRange(row, idx['PartnerID'] + 1).setValue(e.partnerId);
@@ -1189,8 +1198,10 @@ function backfillEstimatedSales() {
         }
       }
       if (!found) {
+        const newRow = salesSheet.getLastRow() + 1;
         salesSheet.appendRow([est.partnerId, est.partnerName, est.month, 0, est.revenue, 0, new Date().toISOString()]);
-        salesData.push([est.partnerId, est.partnerName, est.month, 0, est.revenue, 0, '']); // keep local cache in sync
+        salesSheet.getRange(newRow, smIdx + 1).setNumberFormat('@').setValue(est.month);
+        salesData.push([est.partnerId, est.partnerName, est.month, 0, est.revenue, 0, '']);
         created++;
       }
     });
