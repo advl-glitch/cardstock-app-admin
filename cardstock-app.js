@@ -3579,32 +3579,7 @@ async function renderSalesReportsPage() {
         <button class="period-btn" onclick="setQuickRange(0,this)">All Time</button>
       </div>
     </div>
-    <div class="stats-grid" style="margin-bottom:1.5rem;">
-      ${[
-        {icon:'💰',color:'teal', label:'Total Revenue',id:'report-revenue'},
-        {icon:'🃏',color:'amber',label:'Cards Sold',     id:'report-sold'},
-        {icon:'🏪',color:'green',label:'Top Store',      id:'report-top-store'},
-        {icon:'⭐',color:'coral',label:'Top Design',     id:'report-top-design'},
-      ].map(s => `
-        <div class="stat-card">
-          <div class="stat-icon ${s.color}">${s.icon}</div>
-          <div class="stat-value" id="${s.id}">—</div>
-          <div class="stat-label">${s.label}</div>
-        </div>`).join('')}
-    </div>
-    <div class="stats-grid" style="margin-bottom:1.5rem;">
-      ${[
-        {icon:'🏪',color:'teal', label:'Retail Revenue',id:'report-retail-rev'},
-        {icon:'🎪',color:'amber',label:'Market Revenue',id:'report-market-rev'},
-        {icon:'📦',color:'green',label:'Cards on Shelves',id:'report-on-shelves'},
-        {icon:'💵',color:'coral',label:'Shelf Value',id:'report-shelf-value'},
-      ].map(s => `
-        <div class="stat-card">
-          <div class="stat-icon ${s.color}">${s.icon}</div>
-          <div class="stat-value" id="${s.id}">—</div>
-          <div class="stat-label">${s.label}</div>
-        </div>`).join('')}
-    </div>
+    <div id="report-stats-container"></div>
     <div class="charts-grid">
       <div class="chart-card chart-card-full"><div class="chart-title">Revenue Over Time</div><div class="chart-container"><canvas id="revenue-chart"></canvas></div></div>
       <div class="chart-card"><div class="chart-title">Sales by Store</div><div class="chart-container"><canvas id="store-chart"></canvas></div></div>
@@ -3650,24 +3625,39 @@ async function loadSalesReportData() {
       if (partnerId) select.value = partnerId;
     }
 
-    // Populate stats
+    // Build context-aware stat tiles
     const s = reportData.stats;
-    const el = id => document.getElementById(id);
-    el('report-revenue').textContent = '$' + s.totalRevenue.toFixed(2);
-    el('report-sold').textContent = s.totalCardsSold;
-    el('report-top-store').textContent = s.topStore;
-    el('report-top-design').textContent = s.topDesign;
-    el('report-retail-rev').textContent = '$' + s.totalRetailRevenue.toFixed(2);
-    el('report-market-rev').textContent = partnerId ? 'N/A' : '$' + s.totalMarketRevenue.toFixed(2);
-
-    // Shelf stats
     let totalOnShelves = 0, totalShelfValue = 0;
     (reportData.partnerStockSummary || []).forEach(p => {
       totalOnShelves += p.cardsOnShelf;
       totalShelfValue += p.shelfValue;
     });
-    el('report-on-shelves').textContent = totalOnShelves;
-    el('report-shelf-value').textContent = '$' + totalShelfValue.toFixed(2);
+
+    const row1 = [
+      {icon:'💰',color:'teal', label:'Total Revenue',   value:'$' + s.totalRevenue.toFixed(2)},
+      {icon:'🃏',color:'amber',label:'Cards Sold',       value:s.totalCardsSold},
+    ];
+    if (!partnerId) row1.push({icon:'🏪',color:'green',label:'Top Store', value:s.topStore});
+    row1.push({icon:'⭐',color:'coral',label:'Top Design', value:s.topDesign});
+
+    const row2 = [
+      {icon:'🏪',color:'teal', label:'Retail Revenue',   value:'$' + s.totalRetailRevenue.toFixed(2)},
+    ];
+    if (!partnerId) row2.push({icon:'🎪',color:'amber',label:'Market Revenue', value:'$' + s.totalMarketRevenue.toFixed(2)});
+    if (partnerId) row2.push({icon:'✅',color:'amber',label:'Checks Received', value:'$' + s.totalChecksReceived.toFixed(2)});
+    row2.push(
+      {icon:'📦',color:'green',label:'Cards on Shelves', value:totalOnShelves},
+      {icon:'💵',color:'coral',label:'Shelf Value',      value:'$' + totalShelfValue.toFixed(2)}
+    );
+
+    const renderTileRow = tiles => `<div class="stats-grid" style="margin-bottom:1.5rem;">${tiles.map(t => `
+      <div class="stat-card">
+        <div class="stat-icon ${t.color}">${t.icon}</div>
+        <div class="stat-value">${t.value}</div>
+        <div class="stat-label">${t.label}</div>
+      </div>`).join('')}</div>`;
+
+    document.getElementById('report-stats-container').innerHTML = renderTileRow(row1) + renderTileRow(row2);
 
     // Render charts
     renderReportCharts(reportData.charts);

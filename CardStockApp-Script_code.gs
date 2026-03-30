@@ -2703,6 +2703,7 @@ function getSalesReportData(params) {
           totalRevenue: totalRetailRevenue + totalMarketRevenue,
           totalRetailRevenue,
           totalMarketRevenue,
+          totalChecksReceived: totalRetailRevenue,
           totalCardsSold: totalRetailCards + totalMarketCards,
           topStore: topStore ? topStore[0] : '—',
           topDesign: topDesigns.length > 0 ? topDesigns[0].name : '—'
