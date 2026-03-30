@@ -3839,7 +3839,64 @@ function renderReportDetailTables(data) {
       </div>`;
   }
 
-  container.innerHTML = retailHtml + marketHtml + stockHtml;
+  // Yearly Estimated vs Received comparison
+  let comparisonHtml = '';
+  if (data.retailSales && data.retailSales.length > 0) {
+    // Group by partner + year
+    const byPartnerYear = {};
+    data.retailSales.forEach(s => {
+      const year = s.month.substring(0, 4);
+      const key = s.partnerId + '|' + year;
+      if (!byPartnerYear[key]) byPartnerYear[key] = { partnerName: s.partnerName, year, estimated: 0, received: 0 };
+      byPartnerYear[key].estimated += s.estimatedSales || 0;
+      byPartnerYear[key].received += s.revenue || 0;
+    });
+
+    const rows = Object.values(byPartnerYear)
+      .filter(r => r.estimated > 0 || r.received > 0)
+      .sort((a, b) => b.year.localeCompare(a.year) || a.partnerName.localeCompare(b.partnerName));
+
+    if (rows.length > 0) {
+      const partnerId = document.getElementById('report-partner-filter')?.value || '';
+      comparisonHtml = `
+        <div class="card" style="margin-bottom:1.5rem;">
+          <h3 class="section-title" style="margin-bottom:0.75rem;">Estimated vs Received</h3>
+          <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+              <thead>
+                <tr style="border-bottom:2px solid var(--border);">
+                  ${!partnerId ? '<th style="text-align:left;padding:0.5rem;color:var(--brown-mid);font-size:0.75rem;text-transform:uppercase;">Partner</th>' : ''}
+                  <th style="text-align:left;padding:0.5rem;color:var(--brown-mid);font-size:0.75rem;text-transform:uppercase;">Year</th>
+                  <th style="text-align:right;padding:0.5rem;color:var(--brown-mid);font-size:0.75rem;text-transform:uppercase;">Estimated</th>
+                  <th style="text-align:right;padding:0.5rem;color:var(--brown-mid);font-size:0.75rem;text-transform:uppercase;">Received</th>
+                  <th style="text-align:right;padding:0.5rem;color:var(--brown-mid);font-size:0.75rem;text-transform:uppercase;">Difference</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rows.map(r => {
+                  const diff = r.received - r.estimated;
+                  const pct = r.estimated > 0 ? ((r.received / r.estimated) * 100).toFixed(0) : '—';
+                  const diffColor = Math.abs(diff) > r.estimated * 0.25 && r.estimated > 0 ? 'var(--coral)' : 'var(--brown-dark)';
+                  return `
+                  <tr style="border-bottom:1px solid var(--cream-dark);">
+                    ${!partnerId ? `<td style="padding:0.5rem;">${r.partnerName}</td>` : ''}
+                    <td style="padding:0.5rem;">${r.year}</td>
+                    <td style="padding:0.5rem;text-align:right;">$${r.estimated.toFixed(2)}</td>
+                    <td style="padding:0.5rem;text-align:right;color:var(--green);font-weight:600;">$${r.received.toFixed(2)}</td>
+                    <td style="padding:0.5rem;text-align:right;color:${diffColor};font-weight:600;">
+                      ${diff >= 0 ? '+' : ''}$${diff.toFixed(2)}
+                      ${pct !== '—' ? `<span style="font-size:0.75rem;color:var(--brown-light);font-weight:400;"> (${pct}%)</span>` : ''}
+                    </td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>`;
+    }
+  }
+
+  container.innerHTML = comparisonHtml + retailHtml + marketHtml + stockHtml;
 }
 
 function setQuickRange(days, btn) {

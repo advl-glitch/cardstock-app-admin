@@ -2515,6 +2515,7 @@ function getSalesReportData(params) {
         const rNameIdx = rHeaders.indexOf('PartnerName');
         const rMonthIdx = rHeaders.indexOf('Month');
         const rActualIdx = rHeaders.indexOf('ActualSales');
+        const rEstIdx = rHeaders.indexOf('EstimatedSales');
         const rCardsIdx = rHeaders.indexOf('CardsSold');
 
         const normalizeMonth = (val) => {
@@ -2532,6 +2533,7 @@ function getSalesReportData(params) {
             partnerName: row[rNameIdx] || '',
             month: month,
             revenue: parseFloat(row[rActualIdx]) || 0,
+            estimatedSales: parseFloat(row[rEstIdx]) || 0,
             cardsSold: parseInt(row[rCardsIdx]) || 0
           });
         });
