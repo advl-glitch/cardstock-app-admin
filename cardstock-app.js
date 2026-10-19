@@ -822,7 +822,7 @@ function renderFilterPanelBody() {
 
   body.innerHTML = `
     <div class="filter-category">
-      <div class="filter-category-label">Line</div>
+      <div class="filter-category-label">Card Line</div>
       <div class="filter-tag-chips">
         ${lines.map(line => `
           <button class="filter-tag-chip ${activeLineFilter === line ? 'selected' : ''}"
@@ -1066,7 +1066,7 @@ async function openItemDetail(itemId) {
       <div class="detail-stat"><div class="detail-stat-label">At Stores</div><div class="detail-stat-value" id="detail-at-stores-${item.ItemID}" style="color:var(--teal)">...</div></div>
       <div class="detail-stat"><div class="detail-stat-label">Total Printed</div><div class="detail-stat-value" id="detail-printed-${item.ItemID}" style="color:var(--amber)">...</div></div>
       <div class="detail-stat"><div class="detail-stat-label">Status</div><div class="detail-stat-value" style="font-size:1rem">${item.Status === 'Retired' ? '🪦 Retired' : '✅ Open'}</div></div>
-      <div class="detail-stat"><div class="detail-stat-label">Line</div><div class="detail-stat-value" style="font-size:1rem">${item.Line || 'Standard'}</div></div>
+      <div class="detail-stat"><div class="detail-stat-label">Card Line</div><div class="detail-stat-value" style="font-size:1rem">${item.Line || 'Standard'}</div></div>
       <div class="detail-stat"><div class="detail-stat-label">Wholesale</div><div class="detail-stat-value" style="font-size:1rem">${(item.Wholesale === true || String(item.Wholesale).toUpperCase() === 'TRUE') ? '✅ Yes' : '—'}</div></div>
     </div>
     ${item.Notes ? `<div style="margin-bottom:1rem;font-size:0.875rem;color:var(--brown-mid);background:var(--cream);padding:0.75rem;border-radius:var(--radius-sm);">📝 ${item.Notes}</div>` : ''}
@@ -1157,7 +1157,7 @@ function openEditItemModal(itemId) {
       </div>
       <div class="form-grid">
         <div class="form-field">
-          <label class="field-label">Line</label>
+          <label class="field-label">Card Line</label>
           <select class="field-input" name="line" id="edit-line-select" onchange="handleEditLineChange(this)">
             <option value="Standard" ${(!item.Line || item.Line === 'Standard') ? 'selected' : ''}>Standard</option>
             <option value="Limited Edition" ${item.Line === 'Limited Edition' ? 'selected' : ''}>Limited Edition</option>
@@ -1557,7 +1557,7 @@ async function renderNewItemDesignPage() {
             </div>
             <div class="form-grid">
               <div class="form-field">
-                <label class="field-label">Line</label>
+                <label class="field-label">Card Line</label>
                 <select class="field-input" name="line" id="new-item-line" onchange="handleNewLineChange(this)">
                   <option value="Standard" selected>Standard</option>
                   <option value="Limited Edition">Limited Edition</option>
