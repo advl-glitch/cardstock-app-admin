@@ -795,8 +795,8 @@ async function renderMasterItemsPage() {
 
 let currentItems      = [];
 let activeTagFilters  = new Set();
-let activeLineFilter  = null;   // null | 'Standard' | 'Limited Edition' | 'Naughty Cards'
-let activeWsFilter    = null;   // null | true | false
+let activeLineFilter     = null;   // null | 'Wholesale Line' | 'Limited Edition'
+let activeExplicitFilter = null;   // null | true | false
 
 async function loadFilterPanel() {
   if (!tagsCache) {
@@ -818,7 +818,7 @@ function renderFilterPanelBody() {
     categories[tag.Category].push(tag);
   });
 
-  const lines = ['Standard', 'Limited Edition', 'Naughty Cards'];
+  const lines = ['Wholesale Line', 'Limited Edition'];
 
   body.innerHTML = `
     <div class="filter-category">
@@ -832,12 +832,12 @@ function renderFilterPanelBody() {
       </div>
     </div>
     <div class="filter-category">
-      <div class="filter-category-label">Wholesale</div>
+      <div class="filter-category-label">Explicit Content</div>
       <div class="filter-tag-chips">
-        <button class="filter-tag-chip ${activeWsFilter === true ? 'selected' : ''}"
-          onclick="toggleWsFilter(true, this)">Wholesale</button>
-        <button class="filter-tag-chip ${activeWsFilter === false ? 'selected' : ''}"
-          onclick="toggleWsFilter(false, this)">Not Wholesale</button>
+        <button class="filter-tag-chip ${activeExplicitFilter === true ? 'selected' : ''}"
+          onclick="toggleExplicitFilter(true, this)">Explicit 18+</button>
+        <button class="filter-tag-chip ${activeExplicitFilter === false ? 'selected' : ''}"
+          onclick="toggleExplicitFilter(false, this)">General Audience</button>
       </div>
     </div>
     ${Object.entries(categories).map(([cat, tags]) => `
@@ -860,7 +860,7 @@ function toggleLineFilter(line, btn) {
   } else {
     activeLineFilter = line;
     document.querySelectorAll('#filter-panel-body .filter-tag-chip').forEach(b => {
-      if (b !== btn && ['Standard','Limited Edition','Naughty Cards'].includes(b.textContent.trim())) {
+      if (b !== btn && ['Wholesale Line','Limited Edition'].includes(b.textContent.trim())) {
         b.classList.remove('selected');
       }
     });
@@ -868,14 +868,14 @@ function toggleLineFilter(line, btn) {
   }
 }
 
-function toggleWsFilter(val, btn) {
-  if (activeWsFilter === val) {
-    activeWsFilter = null;
+function toggleExplicitFilter(val, btn) {
+  if (activeExplicitFilter === val) {
+    activeExplicitFilter = null;
     btn.classList.remove('selected');
   } else {
-    activeWsFilter = val;
+    activeExplicitFilter = val;
     document.querySelectorAll('#filter-panel-body .filter-tag-chip').forEach(b => {
-      if (b !== btn && (b.textContent.trim() === 'Wholesale' || b.textContent.trim() === 'Not Wholesale')) {
+      if (b !== btn && (b.textContent.trim() === 'Explicit 18+' || b.textContent.trim() === 'General Audience')) {
         b.classList.remove('selected');
       }
     });
@@ -903,8 +903,8 @@ function closeFilterPanel() {
 
 function clearAllFilters() {
   activeTagFilters.clear();
-  activeLineFilter = null;
-  activeWsFilter   = null;
+  activeLineFilter     = null;
+  activeExplicitFilter = null;
   renderFilterPanelBody();
   updateActiveFiltersBar();
   currentItems = itemsCache || [];
@@ -918,12 +918,12 @@ function applyFilters() {
   currentItems = itemsCache || [];
 
   if (activeLineFilter) {
-    currentItems = currentItems.filter(item => (item.Line || 'Standard') === activeLineFilter);
+    currentItems = currentItems.filter(item => (item.Line || 'Wholesale Line') === activeLineFilter);
   }
-  if (activeWsFilter !== null) {
+  if (activeExplicitFilter !== null) {
     currentItems = currentItems.filter(item => {
-      const ws = item.Wholesale === true || String(item.Wholesale).toUpperCase() === 'TRUE';
-      return activeWsFilter ? ws : !ws;
+      const isExplicit = item.Explicit === true || String(item.Explicit).toUpperCase() === 'TRUE';
+      return activeExplicitFilter ? isExplicit : !isExplicit;
     });
   }
   if (activeTagFilters.size > 0) {
@@ -932,7 +932,7 @@ function applyFilters() {
     );
   }
 
-  const totalActive = activeTagFilters.size + (activeLineFilter ? 1 : 0) + (activeWsFilter !== null ? 1 : 0);
+  const totalActive = activeTagFilters.size + (activeLineFilter ? 1 : 0) + (activeExplicitFilter !== null ? 1 : 0);
   const count = document.getElementById('filter-count');
   if (count) {
     if (totalActive > 0) {
@@ -1015,8 +1015,7 @@ function renderItemsGrid(items) {
           <span class="item-card-price">$${Number(item.UnitPrice || 0).toFixed(2)}</span>
           <span class="badge ${item.Status === 'Retired' ? 'badge-coral' : 'badge-green'}">${item.Status || 'Open'}</span>
           ${item.Line === 'Limited Edition' ? '<span class="badge badge-amber" style="margin-left:0.25rem;">Limited</span>' : ''}
-          ${item.Line === 'Naughty Cards' ? '<span class="badge badge-coral" style="margin-left:0.25rem;">XXX</span>' : ''}
-          ${(item.Wholesale === true || String(item.Wholesale).toUpperCase() === 'TRUE') && item.Line !== 'Naughty Cards' ? '<span class="badge badge-teal" style="margin-left:0.25rem;font-size:0.65rem;">WS</span>' : ''}
+          ${(item.Explicit === true || String(item.Explicit).toUpperCase() === 'TRUE') ? '<span class="badge badge-coral" style="margin-left:0.25rem;">XXX</span>' : ''}
         </div>
       </div>
     </div>`).join('')}</div>`;
@@ -1039,7 +1038,7 @@ function renderItemsList(items) {
             <td>
               <span class="badge ${item.Status === 'Retired' ? 'badge-coral' : 'badge-green'}">${item.Status || 'Open'}</span>
               ${item.Line === 'Limited Edition' ? '<span class="badge badge-amber" style="margin-left:0.2rem;">Limited</span>' : ''}
-              ${item.Line === 'Naughty Cards' ? '<span class="badge badge-coral" style="margin-left:0.2rem;">XXX</span>' : ''}
+              ${(item.Explicit === true || String(item.Explicit).toUpperCase() === 'TRUE') ? '<span class="badge badge-coral" style="margin-left:0.2rem;">XXX</span>' : ''}
             </td>
           </tr>`).join('')}
         </tbody>
@@ -1066,8 +1065,8 @@ async function openItemDetail(itemId) {
       <div class="detail-stat"><div class="detail-stat-label">At Stores</div><div class="detail-stat-value" id="detail-at-stores-${item.ItemID}" style="color:var(--teal)">...</div></div>
       <div class="detail-stat"><div class="detail-stat-label">Total Printed</div><div class="detail-stat-value" id="detail-printed-${item.ItemID}" style="color:var(--amber)">...</div></div>
       <div class="detail-stat"><div class="detail-stat-label">Status</div><div class="detail-stat-value" style="font-size:1rem">${item.Status === 'Retired' ? '🪦 Retired' : '✅ Open'}</div></div>
-      <div class="detail-stat"><div class="detail-stat-label">Card Line</div><div class="detail-stat-value" style="font-size:1rem">${item.Line || 'Standard'}</div></div>
-      <div class="detail-stat"><div class="detail-stat-label">Wholesale</div><div class="detail-stat-value" style="font-size:1rem">${(item.Wholesale === true || String(item.Wholesale).toUpperCase() === 'TRUE') ? '✅ Yes' : '—'}</div></div>
+      <div class="detail-stat"><div class="detail-stat-label">Card Line</div><div class="detail-stat-value" style="font-size:1rem">${item.Line || 'Wholesale Line'}</div></div>
+      <div class="detail-stat"><div class="detail-stat-label">Explicit</div><div class="detail-stat-value" style="font-size:1rem">${(item.Explicit === true || String(item.Explicit).toUpperCase() === 'TRUE') ? '🔞 Yes' : '—'}</div></div>
     </div>
     ${item.Notes ? `<div style="margin-bottom:1rem;font-size:0.875rem;color:var(--brown-mid);background:var(--cream);padding:0.75rem;border-radius:var(--radius-sm);">📝 ${item.Notes}</div>` : ''}
     ${(item._tagIds && item._tagIds.length > 0) ? `<div style="margin-bottom:1rem;"><div style="font-size:0.75rem;font-weight:600;color:var(--brown-light);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.4rem;">Tags</div><div style="display:flex;flex-wrap:wrap;gap:0.35rem;">${item._tagIds.map(id => { const t = (tagsCache || []).find(t => t.TagID === id); return t ? `<span style="display:inline-block;padding:0.2rem 0.6rem;font-size:0.75rem;background:var(--cream);border:1px solid var(--brown-lightest);border-radius:999px;color:var(--brown-mid);">${t.TagName}</span>` : ''; }).join('')}</div></div>` : ''}
@@ -1111,11 +1110,7 @@ function navigateItemDetail(currentId, direction) {
 }
 
 function handleEditLineChange(select) {
-  const isLocked = select.value === 'Limited Edition' || select.value === 'Naughty Cards';
-  const wsField  = document.getElementById('edit-wholesale-field');
-  const wsCheck  = document.getElementById('edit-wholesale-check');
-  if (wsField) wsField.style.cssText = isLocked ? 'opacity:0.4;pointer-events:none;' : '';
-  if (wsCheck) { wsCheck.disabled = isLocked; if (isLocked) wsCheck.checked = false; }
+  // No side effects — Explicit is independent of Card Line
 }
 
 function openEditItemModal(itemId) {
@@ -1159,9 +1154,8 @@ function openEditItemModal(itemId) {
         <div class="form-field">
           <label class="field-label">Card Line</label>
           <select class="field-input" name="line" id="edit-line-select" onchange="handleEditLineChange(this)">
-            <option value="Standard" ${(!item.Line || item.Line === 'Standard') ? 'selected' : ''}>Standard</option>
+            <option value="Wholesale Line" ${(!item.Line || item.Line === 'Wholesale Line' || item.Line === 'Standard') ? 'selected' : ''}>Wholesale Line</option>
             <option value="Limited Edition" ${item.Line === 'Limited Edition' ? 'selected' : ''}>Limited Edition</option>
-            <option value="Naughty Cards" ${item.Line === 'Naughty Cards' ? 'selected' : ''}>Naughty Cards</option>
           </select>
         </div>
         <div class="form-field">
@@ -1172,14 +1166,13 @@ function openEditItemModal(itemId) {
           </select>
         </div>
       </div>
-      <div class="form-field" id="edit-wholesale-field" style="${(item.Line === 'Limited Edition' || item.Line === 'Naughty Cards') ? 'opacity:0.4;pointer-events:none;' : ''}">
+      <div class="form-field">
         <label class="field-label" style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
-          <input type="checkbox" name="wholesale" id="edit-wholesale-check"
-            ${(item.Wholesale === true || String(item.Wholesale).toUpperCase() === 'TRUE') ? 'checked' : ''}
-            ${(item.Line === 'Limited Edition' || item.Line === 'Naughty Cards') ? 'disabled' : ''}>
-          Wholesale design (shown on retailer page)
+          <input type="checkbox" name="explicit" id="edit-explicit-check"
+            ${(item.Explicit === true || String(item.Explicit).toUpperCase() === 'TRUE') ? 'checked' : ''}>
+          Explicit / 18+ content
         </label>
-        <div class="field-hint">Uncheck for home-stock-only designs. Forced off for Limited Edition and Naughty Cards.</div>
+        <div class="field-hint">Check for adult-humor designs (any line). Hidden behind age gate on retailer page.</div>
       </div>
       <div class="form-field">
         <label class="field-label">Tags</label>
@@ -1196,16 +1189,14 @@ function openEditItemModal(itemId) {
     const btnWrap      = document.getElementById('edit-item-btn-wrap');
     const fd           = new FormData(e.target);
     const selectedTags = [...document.querySelectorAll('.edit-tag-check:checked')].map(c => c.value);
-    const line = fd.get('line') || 'Standard';
-    const wholesale = (line === 'Limited Edition' || line === 'Naughty Cards')
-      ? false
-      : document.getElementById('edit-wholesale-check')?.checked === true;
-    const payload      = {
+    const line     = fd.get('line') || 'Wholesale Line';
+    const explicit = document.getElementById('edit-explicit-check')?.checked === true;
+    const payload  = {
       action: 'updateItem',
       itemData: {
         itemId, designName: fd.get('designName'), itemType: fd.get('itemType'),
         unitPrice: fd.get('unitPrice'), photo: fixPhotoUrl(fd.get('photo')),
-        notes: fd.get('notes'), status: fd.get('status'), line, wholesale, tags: selectedTags,
+        notes: fd.get('notes'), status: fd.get('status'), line, explicit, tags: selectedTags,
       }
     };
     if (btnWrap) btnWrap.style.display = 'none';
@@ -1559,9 +1550,8 @@ async function renderNewItemDesignPage() {
               <div class="form-field">
                 <label class="field-label">Card Line</label>
                 <select class="field-input" name="line" id="new-item-line" onchange="handleNewLineChange(this)">
-                  <option value="Standard" selected>Standard</option>
+                  <option value="Wholesale Line" selected>Wholesale Line</option>
                   <option value="Limited Edition">Limited Edition</option>
-                  <option value="Naughty Cards">Naughty Cards</option>
                 </select>
               </div>
               <div class="form-field">
@@ -1571,12 +1561,12 @@ async function renderNewItemDesignPage() {
                 </select>
               </div>
             </div>
-            <div class="form-field" id="new-wholesale-field">
+            <div class="form-field">
               <label class="field-label" style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
-                <input type="checkbox" name="wholesale" id="new-wholesale-check" checked>
-                Wholesale design (shown on retailer page)
+                <input type="checkbox" name="explicit" id="new-explicit-check">
+                Explicit / 18+ content
               </label>
-              <div class="field-hint">Uncheck for home-stock-only designs. Forced off for Limited Edition and Naughty Cards.</div>
+              <div class="field-hint">Check for adult-humor designs (any line). Hidden behind age gate on retailer page.</div>
             </div>
             <div class="form-field">
               <label class="field-label">First Print Run Quantity *</label>
@@ -1622,13 +1612,8 @@ async function renderNewItemDesignPage() {
 
     document.getElementById('new-item-form').addEventListener('submit', handleAddNewItem);
 
-    // Line change handler — disable wholesale toggle for Limited Edition / Naughty Cards
     window.handleNewLineChange = function(select) {
-      const isLocked = select.value === 'Limited Edition' || select.value === 'Naughty Cards';
-      const wsField  = document.getElementById('new-wholesale-field');
-      const wsCheck  = document.getElementById('new-wholesale-check');
-      if (wsField) wsField.style.cssText = isLocked ? 'opacity:0.4;pointer-events:none;' : '';
-      if (wsCheck) { wsCheck.disabled = isLocked; if (isLocked) wsCheck.checked = false; }
+      // No side effects — Explicit is independent of Card Line
     };
 
     document.getElementById('new-item-type').addEventListener('change', (e) => {
@@ -1712,7 +1697,7 @@ async function handleAddNewItem(event) {
   }
   const payload      = {
     action: 'addItem',
-    itemData: { itemId: rawData.itemId, designName: rawData.designName, itemType: rawData.itemType, unitPrice: rawData.unitPrice, photo: fixPhotoUrl(rawData.photo), notes: rawData.notes, dateAdded: rawData.dateAdded, status: rawData.status || 'Open', line: rawData.line || 'Standard', wholesale: rawData.line === 'Limited Edition' || rawData.line === 'Naughty Cards' ? false : document.getElementById('new-wholesale-check')?.checked === true, tags: selectedTags },
+    itemData: { itemId: rawData.itemId, designName: rawData.designName, itemType: rawData.itemType, unitPrice: rawData.unitPrice, photo: fixPhotoUrl(rawData.photo), notes: rawData.notes, dateAdded: rawData.dateAdded, status: rawData.status || 'Open', line: rawData.line || 'Wholesale Line', explicit: document.getElementById('new-explicit-check')?.checked === true, tags: selectedTags },
     printRunData: { itemId: rawData.itemId, quantity: rawData.firstRun, date: rawData.dateAdded }
   };
   try {
@@ -4321,7 +4306,7 @@ async function renderSettingsPage() {
         <div class="settings-row" style="flex-wrap:wrap;gap:0.75rem;">
           <div class="settings-row-info">
             <div class="settings-row-label">Active Season</div>
-            <div class="settings-row-desc">Wholesale designs with this season tag appear in a spotlight section at the top of the retailer page.</div>
+            <div class="settings-row-desc">Designs with this season tag appear in a spotlight section at the top of the retailer page.</div>
           </div>
           <select class="field-input" id="season-select" style="min-width:180px;" onchange="saveActiveSeason(this.value)">
             ${seasons.map(s => `<option value="${s}" ${activeSeason === s ? 'selected' : ''}>${s || 'None (off)'}</option>`).join('')}

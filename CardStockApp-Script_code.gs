@@ -53,6 +53,7 @@ function doGet(e) {
     case 'fixRetailSalesSheet':    result = fixRetailSalesSheet(); break;
     case 'getSettings':            result = getSettings(); break;
     case 'migrateStatusLimitedToLine': result = migrateStatusLimitedToLine(); break;
+    case 'migrateLineAndExplicit':    result = migrateLineAndExplicit(); break;
     default:
       result = { success: false, error: 'Invalid action: ' + action };
   }
@@ -228,8 +229,8 @@ function addItem(itemData, printRunData) {
       'ProductType': itemData.itemType,
       'UnitPrice': itemData.unitPrice || '',
       'Status': itemData.status || 'Open',
-      'Line': itemData.line || 'Standard',
-      'Wholesale': (itemData.line === 'Limited Edition' || itemData.line === 'Naughty Cards') ? false : (itemData.wholesale === true || itemData.wholesale === 'true'),
+      'Line': itemData.line || 'Wholesale Line',
+      'Explicit': itemData.explicit === true || itemData.explicit === 'true',
       'Notes': itemData.notes || '',
       'CreatedAt': now,
       'StartingAtHome': 0,
@@ -278,9 +279,7 @@ function updateItem(itemData) {
           'Notes': itemData.notes,
           'Status': itemData.status,
           'Line': itemData.line,
-          'Wholesale': itemData.line === 'Limited Edition' || itemData.line === 'Naughty Cards'
-            ? false
-            : itemData.wholesale !== undefined ? (itemData.wholesale === true || itemData.wholesale === 'true') : undefined,
+          'Explicit': itemData.explicit !== undefined ? (itemData.explicit === true || itemData.explicit === 'true') : undefined,
         };
         // Update home stock if newStock is provided (from audit page)
         if (itemData.newStock !== undefined) {
@@ -1465,21 +1464,21 @@ function getPublicStock() {
     }
 
     const stockItems = itemsResult.items
-      .filter(item => {
-        if (item.Status === 'Retired') return false;
-        // Must be flagged as a wholesale design to appear on the retailer page
-        const isWholesaleDesign = item.Wholesale === true || String(item.Wholesale).toUpperCase() === 'TRUE';
-        return isWholesaleDesign;
-      })
+      .filter(item => item.Status !== 'Retired')
       .map(item => {
         const pending   = pendingMap[String(item.ItemID)] || 0;
         const atHome    = parseInt(item.StartingAtHome) || 0;
         const available = Math.max(0, atHome - pending);
         const inStock   = available > 0;
+        const line      = item.Line || 'Wholesale Line';
+        const explicit  = item.Explicit === true || String(item.Explicit).toUpperCase() === 'TRUE';
 
-        const tagIds    = tagMap[String(item.ItemID)] || [];
-        const seasons   = tagIds.filter(id => tagLookup[id]?.Category === 'Season').map(id => tagLookup[id].TagName);
-        const regions   = tagIds.filter(id => tagLookup[id]?.Category === 'Region').map(id => tagLookup[id].TagName);
+        // Out-of-stock Limited Edition designs are not shown (they don't become MTO)
+        if (line === 'Limited Edition' && !inStock) return null;
+
+        const tagIds  = tagMap[String(item.ItemID)] || [];
+        const seasons = tagIds.filter(id => tagLookup[id]?.Category === 'Season').map(id => tagLookup[id].TagName);
+        const regions = tagIds.filter(id => tagLookup[id]?.Category === 'Region').map(id => tagLookup[id].TagName);
 
         return {
           itemId:         item.ItemID,
@@ -1488,16 +1487,18 @@ function getPublicStock() {
           productType:    item.ProductType || '',
           unitPrice:      item.UnitPrice || 0,
           totalStock:     atHome,
-          pending:        pending,
-          available:      available,
-          inStock:        inStock,
+          pending,
+          available,
+          inStock,
           tags:           tagIds,
-          seasons:        seasons,
-          regions:        regions,
-          line:           item.Line || 'Standard',
+          seasons,
+          regions,
+          line,
+          explicit,
           wholesalePrice: getWholesalePrice(item.ProductType),
         };
-      });
+      })
+      .filter(Boolean);
 
     return { success: true, items: stockItems };
   } catch (e) {
@@ -3091,6 +3092,146 @@ function migrateStatusLimitedToLine() {
       success: true,
       message: `Done. ${migrated} designs migrated from Status=Limited to Line=Limited Edition. ${wsDefaulted} designs defaulted to Wholesale=TRUE.`,
       nearMatchTags: nearMatches,
+    };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+
+// =============================================================================
+// PHASE 1.1 MIGRATION — Line → "Wholesale Line"/"Limited Edition" + Explicit field
+// Run once from the GAS editor after pasting this code.
+// Backs up Items and ItemTags first, then migrates in place.
+// =============================================================================
+
+function migrateLineAndExplicit() {
+  try {
+    const ss = SPREADSHEET;
+
+    // ── 1. Back up Items and ItemTags sheets ──
+    const ts        = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmm');
+    const itemsSrc  = ss.getSheetByName('Items');
+    const tagsSrc   = ss.getSheetByName('ItemTags');
+    if (!itemsSrc) return { success: false, error: 'Items sheet not found.' };
+
+    itemsSrc.copyTo(ss).setName('Items_backup_' + ts);
+    if (tagsSrc) tagsSrc.copyTo(ss).setName('ItemTags_backup_' + ts);
+
+    // ── 2. Ensure Explicit column exists on Items ──
+    const itemsData    = itemsSrc.getDataRange().getValues();
+    const itemsHeaders = itemsData[0];
+    let lineIdx        = itemsHeaders.indexOf('Line');
+    let explicitIdx    = itemsHeaders.indexOf('Explicit');
+
+    if (lineIdx === -1) return { success: false, error: 'No Line column found on Items sheet.' };
+
+    if (explicitIdx === -1) {
+      // Append Explicit header
+      explicitIdx = itemsHeaders.length;
+      itemsSrc.getRange(1, explicitIdx + 1).setValue('Explicit');
+    }
+
+    // ── 3. Migrate Line values and set Explicit ──
+    let renamedStandard = 0;
+    let renamedNaughty  = 0;
+    let explicitSet     = 0;
+
+    for (let i = 1; i < itemsData.length; i++) {
+      const row    = itemsData[i];
+      const line   = String(row[lineIdx] || '').trim();
+      const rowNum = i + 1;
+
+      if (line === 'Standard' || line === '') {
+        itemsSrc.getRange(rowNum, lineIdx + 1).setValue('Wholesale Line');
+        renamedStandard++;
+      } else if (line === 'Naughty Cards') {
+        itemsSrc.getRange(rowNum, lineIdx + 1).setValue('Wholesale Line');
+        itemsSrc.getRange(rowNum, explicitIdx + 1).setValue(true);
+        renamedNaughty++;
+        explicitSet++;
+        continue;
+      }
+      // Set Explicit = false for everything not already set
+      const explicit = row[explicitIdx];
+      if (explicit === '' || explicit === null || explicit === undefined) {
+        itemsSrc.getRange(rowNum, explicitIdx + 1).setValue(false);
+      }
+    }
+
+    // ── 4. Find designs with "Rated R" or "Rated XXX" tags → set Explicit = true ──
+    const tagsSheet = ss.getSheetByName('Tags');
+    const itemTagsSheet = tagsSrc;
+    let ratingTagsFound = [];
+
+    if (tagsSheet && itemTagsSheet) {
+      const tData    = tagsSheet.getDataRange().getValues();
+      const tHeaders = tData[0];
+      const tIdIdx   = tHeaders.indexOf('TagID');
+      const tNameIdx = tHeaders.indexOf('TagName');
+      const tCatIdx  = tHeaders.indexOf('Category');
+
+      // Find rating tag IDs to migrate/delete
+      const explicitTagIds = new Set();
+      const deleteTagRows  = []; // 1-based row indices on Tags sheet
+
+      for (let i = 1; i < tData.length; i++) {
+        const name = String(tData[i][tNameIdx] || '').trim();
+        const cat  = String(tData[i][tCatIdx]  || '').trim();
+        if (['Rated R', 'Rated XXX', 'Explicit 18+'].includes(name) ||
+            cat.toLowerCase() === 'rating' || cat.toLowerCase() === 'ratings') {
+          if (['Rated R', 'Rated XXX'].includes(name)) {
+            explicitTagIds.add(String(tData[i][tIdIdx]));
+            ratingTagsFound.push(name);
+            deleteTagRows.push(i + 1);
+          } else if (name === 'Explicit 18+') {
+            explicitTagIds.add(String(tData[i][tIdIdx]));
+            ratingTagsFound.push(name + ' (already exists)');
+          }
+          // General / All Ages tags are left alone (no longer meaningful but harmless)
+        }
+      }
+
+      if (explicitTagIds.size > 0) {
+        // Find designs with these tags and set Explicit = true on Items sheet
+        const itData    = itemTagsSheet.getDataRange().getValues();
+        const itHeaders = itData[0];
+        const itItemIdx = itHeaders.indexOf('ItemID');
+        const itTagIdx  = itHeaders.indexOf('TagID');
+        const affectedItems = new Set();
+
+        itData.slice(1).forEach(row => {
+          if (explicitTagIds.has(String(row[itTagIdx]))) {
+            affectedItems.add(String(row[itItemIdx]));
+          }
+        });
+
+        if (affectedItems.size > 0) {
+          const freshItems    = itemsSrc.getDataRange().getValues();
+          const freshHeaders  = freshItems[0];
+          const fIdIdx        = freshHeaders.indexOf('ItemID');
+          const fExplicitIdx  = freshHeaders.indexOf('Explicit');
+
+          for (let i = 1; i < freshItems.length; i++) {
+            if (affectedItems.has(String(freshItems[i][fIdIdx]))) {
+              itemsSrc.getRange(i + 1, fExplicitIdx + 1).setValue(true);
+              explicitSet++;
+            }
+          }
+        }
+      }
+    }
+
+    return {
+      success: true,
+      message: [
+        `Backed up Items → Items_backup_${ts}`,
+        `Backed up ItemTags → ItemTags_backup_${ts}`,
+        `${renamedStandard} designs renamed Standard → Wholesale Line`,
+        `${renamedNaughty} Naughty Cards designs → Wholesale Line + Explicit=true`,
+        `${explicitSet} total designs set to Explicit=true`,
+        ratingTagsFound.length > 0 ? `Rating tags found and processed: ${ratingTagsFound.join(', ')}` : 'No rating tags found in Tags sheet',
+      ].join('\n'),
     };
   } catch (e) {
     return { success: false, error: e.message };
