@@ -51,6 +51,8 @@ function doGet(e) {
     case 'getLatestVisit':       result = getLatestVisit(e.parameter.partnerId); break;
     case 'backfillEstimatedSales': result = backfillEstimatedSales(); break;
     case 'fixRetailSalesSheet':    result = fixRetailSalesSheet(); break;
+    case 'getSettings':            result = getSettings(); break;
+    case 'migrateStatusLimitedToLine': result = migrateStatusLimitedToLine(); break;
     default:
       result = { success: false, error: 'Invalid action: ' + action };
   }
@@ -95,6 +97,10 @@ function doPost(e) {
     case 'logMarketSale':            result = logMarketSale(payload); break;
     case 'sendVisitReport':          result = sendVisitReport(payload); break;
     case 'sendRestockNotes':         result = sendRestockNotes(payload); break;
+    case 'renameTag':              result = renameTag(payload.tagId, payload.newName); break;
+    case 'updateTagCategory':      result = updateTagCategory(payload.tagId, payload.newCategory); break;
+    case 'updateSettings':         result = updateSettings(payload.key, payload.value); break;
+    case 'approveOrderRequests':   result = approveOrderRequests(payload.orderId, payload.approvals, payload.readyDate); break;
     default:
       result = { success: false, error: 'Invalid action: ' + action };
   }
@@ -222,6 +228,8 @@ function addItem(itemData, printRunData) {
       'ProductType': itemData.itemType,
       'UnitPrice': itemData.unitPrice || '',
       'Status': itemData.status || 'Open',
+      'Line': itemData.line || 'Standard',
+      'Wholesale': (itemData.line === 'Limited Edition' || itemData.line === 'Naughty Cards') ? false : (itemData.wholesale === true || itemData.wholesale === 'true'),
       'Notes': itemData.notes || '',
       'CreatedAt': now,
       'StartingAtHome': 0,
@@ -268,7 +276,11 @@ function updateItem(itemData) {
           'ProductType': itemData.itemType,
           'UnitPrice': itemData.unitPrice,
           'Notes': itemData.notes,
-          'Status': itemData.status
+          'Status': itemData.status,
+          'Line': itemData.line,
+          'Wholesale': itemData.line === 'Limited Edition' || itemData.line === 'Naughty Cards'
+            ? false
+            : itemData.wholesale !== undefined ? (itemData.wholesale === true || itemData.wholesale === 'true') : undefined,
         };
         // Update home stock if newStock is provided (from audit page)
         if (itemData.newStock !== undefined) {
@@ -1442,28 +1454,50 @@ function getPublicStock() {
     const itemsResult = getItems();
     if (!itemsResult.success) return itemsResult;
 
-    const tagMap = getItemTagsMap();
+    const tagMap     = getItemTagsMap();
     const pendingMap = getPendingStockMap();
 
+    // Build tag lookup for category-aware filtering
+    const tagsResult = getTags();
+    const tagLookup  = {};
+    if (tagsResult.success) {
+      tagsResult.tags.forEach(t => { tagLookup[t.TagID] = t; });
+    }
+
     const stockItems = itemsResult.items
-      .filter(item => item.Status !== 'Retired')
+      .filter(item => {
+        if (item.Status === 'Retired') return false;
+        // Must be flagged as a wholesale design to appear on the retailer page
+        const isWholesaleDesign = item.Wholesale === true || String(item.Wholesale).toUpperCase() === 'TRUE';
+        return isWholesaleDesign;
+      })
       .map(item => {
-        const pending = pendingMap[String(item.ItemID)] || 0;
-        const available = Math.max(0, (parseInt(item.StartingAtHome) || 0) - pending);
+        const pending   = pendingMap[String(item.ItemID)] || 0;
+        const atHome    = parseInt(item.StartingAtHome) || 0;
+        const available = Math.max(0, atHome - pending);
+        const inStock   = available > 0;
+
+        const tagIds    = tagMap[String(item.ItemID)] || [];
+        const seasons   = tagIds.filter(id => tagLookup[id]?.Category === 'Season').map(id => tagLookup[id].TagName);
+        const regions   = tagIds.filter(id => tagLookup[id]?.Category === 'Region').map(id => tagLookup[id].TagName);
+
         return {
-          itemId: item.ItemID,
-          displayName: item.DisplayName || item.Name,
-          photo: item.Photo || '',
-          productType: item.ProductType || '',
-          unitPrice: item.UnitPrice || 0,
-          totalStock: parseInt(item.StartingAtHome) || 0,
-          pending: pending,
-          available: available,
-          tags: tagMap[String(item.ItemID)] || [],
+          itemId:         item.ItemID,
+          displayName:    item.DisplayName || item.Name,
+          photo:          item.Photo || '',
+          productType:    item.ProductType || '',
+          unitPrice:      item.UnitPrice || 0,
+          totalStock:     atHome,
+          pending:        pending,
+          available:      available,
+          inStock:        inStock,
+          tags:           tagIds,
+          seasons:        seasons,
+          regions:        regions,
+          line:           item.Line || 'Standard',
           wholesalePrice: getWholesalePrice(item.ProductType),
         };
-      })
-      .filter(item => item.totalStock > 0);
+      });
 
     return { success: true, items: stockItems };
   } catch (e) {
@@ -1549,14 +1583,45 @@ function submitOrder(orderData) {
     const orderId = 'ORD-' + now.getTime();
     const isWholesale = orderData.partnerType === 'wholesale';
 
+    // --- Order validation ---
+    if (isWholesale) {
+      // Every in-stock line must be a multiple of 6
+      const badQty = orderData.items.filter(item => !item.isRequest && item.qty % 6 !== 0);
+      if (badQty.length > 0) {
+        return { success: false, error: 'Wholesale orders must be in packs of 6. Check quantities for: ' + badQty.map(i => i.designName).join(', ') };
+      }
+      // $150 minimum on first orders
+      if (isFirstWholesaleOrder(orderData.locationId)) {
+        const previewTotal = orderData.items
+          .filter(item => !item.isRequest)
+          .reduce((sum, item) => sum + (item.wholesalePrice || 2) * item.qty, 0);
+        if (previewTotal < 150) {
+          return { success: false, error: 'First wholesale orders have a $150 minimum. Current total: $' + previewTotal.toFixed(2) };
+        }
+      }
+    } else {
+      // Consignment: minimum 4 cards per design (including Made to Order requests)
+      const badConsign = orderData.items.filter(item => item.qty < 4);
+      if (badConsign.length > 0) {
+        return { success: false, error: 'Consignment orders require a minimum of 4 cards per design. Check: ' + badConsign.map(i => i.designName).join(', ') };
+      }
+    }
+
     let subTotal = 0;
     if (isWholesale) {
-      orderData.items.forEach(item => {
+      orderData.items.filter(item => !item.isRequest).forEach(item => {
         subTotal += (item.wholesalePrice || 2) * item.qty;
       });
     }
     const taxAmount = isWholesale ? subTotal * VA_SALES_TAX : 0;
     const estTotal = subTotal + taxAmount;
+    const hasRequests = orderData.items.some(item => item.isRequest);
+
+    // Ensure Orders sheet has ReadyDate column
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    if (!headers.includes('ReadyDate')) {
+      sheet.getRange(1, headers.length + 1).setValue('ReadyDate');
+    }
 
     sheet.appendRow([
       orderId,
@@ -1570,9 +1635,10 @@ function submitOrder(orderData) {
       isWholesale ? subTotal.toFixed(2) : '',
       isWholesale ? taxAmount.toFixed(2) : '',
       isWholesale ? estTotal.toFixed(2) : '',
-      'Pending',
+      hasRequests ? 'Pending — Has Requests' : 'Pending',
       orderData.notes || '',
-      ''
+      '',
+      '',  // ReadyDate
     ]);
 
     sendOrderNotification(orderId, orderData, subTotal, taxAmount, estTotal);
@@ -2718,6 +2784,313 @@ function getSalesReportData(params) {
           topDesigns
         }
       }
+    };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+
+// =============================================================================
+// SETTINGS — Active Season and other app-level settings
+// =============================================================================
+
+function getSettings() {
+  try {
+    let sheet = SPREADSHEET.getSheetByName('Settings');
+    if (!sheet) return { success: true, settings: {} };
+    const data = sheet.getDataRange().getValues();
+    const settings = {};
+    data.forEach(row => {
+      if (row[0]) settings[String(row[0])] = row[1];
+    });
+    return { success: true, settings };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+function updateSettings(key, value) {
+  try {
+    let sheet = SPREADSHEET.getSheetByName('Settings');
+    if (!sheet) {
+      sheet = SPREADSHEET.insertSheet('Settings');
+    }
+    const data = sheet.getDataRange().getValues();
+    for (let i = 0; i < data.length; i++) {
+      if (String(data[i][0]) === String(key)) {
+        sheet.getRange(i + 1, 2).setValue(value);
+        return { success: true };
+      }
+    }
+    sheet.appendRow([key, value]);
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+// =============================================================================
+// TAGS — rename and move to category
+// =============================================================================
+
+function renameTag(tagId, newName) {
+  try {
+    const sheet = SPREADSHEET.getSheetByName('Tags');
+    if (!sheet) return { success: false, error: 'Tags sheet not found.' };
+    const data    = sheet.getDataRange().getValues();
+    const headers = data[0];
+    const idIdx   = headers.indexOf('TagID');
+    const nameIdx = headers.indexOf('TagName');
+    if (idIdx === -1 || nameIdx === -1) return { success: false, error: 'Tags sheet missing required columns.' };
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][idIdx]) === String(tagId)) {
+        sheet.getRange(i + 1, nameIdx + 1).setValue(newName);
+        return { success: true };
+      }
+    }
+    return { success: false, error: 'Tag not found.' };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+function updateTagCategory(tagId, newCategory) {
+  try {
+    const sheet   = SPREADSHEET.getSheetByName('Tags');
+    if (!sheet) return { success: false, error: 'Tags sheet not found.' };
+    const data    = sheet.getDataRange().getValues();
+    const headers = data[0];
+    const idIdx   = headers.indexOf('TagID');
+    const catIdx  = headers.indexOf('Category');
+    if (idIdx === -1 || catIdx === -1) return { success: false, error: 'Tags sheet missing required columns.' };
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][idIdx]) === String(tagId)) {
+        sheet.getRange(i + 1, catIdx + 1).setValue(newCategory);
+        return { success: true };
+      }
+    }
+    return { success: false, error: 'Tag not found.' };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+// =============================================================================
+// ORDER REQUESTS — approve / decline Made to Order lines
+// =============================================================================
+
+function approveOrderRequests(orderId, approvals, readyDate) {
+  // approvals: [{ itemId, decision: 'approved'|'declined'|'wholesale_only', note }]
+  try {
+    const sheet = SPREADSHEET.getSheetByName('Orders');
+    if (!sheet) return { success: false, error: 'Orders sheet not found.' };
+
+    const data    = sheet.getDataRange().getValues();
+    const headers = data[0];
+    const idIdx        = headers.indexOf('OrderID');
+    const itemsIdx     = headers.indexOf('ItemsJSON');
+    const statusIdx    = headers.indexOf('Status');
+    const readyDateIdx = headers.indexOf('ReadyDate');
+
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][idIdx]) !== String(orderId)) continue;
+      const rowNum = i + 1;
+
+      const items       = JSON.parse(data[i][itemsIdx] || '[]');
+      const approvalMap = {};
+      approvals.forEach(a => { approvalMap[String(a.itemId)] = a; });
+
+      const updatedItems = items.map(item => {
+        if (!item.isRequest) return item;
+        const decision = approvalMap[String(item.itemId)];
+        if (!decision) return item;
+        return { ...item, requestStatus: decision.decision, requestNote: decision.note || '' };
+      });
+
+      sheet.getRange(rowNum, itemsIdx + 1).setValue(JSON.stringify(updatedItems));
+
+      const allResolved = updatedItems.filter(item => item.isRequest).every(item => item.requestStatus);
+      sheet.getRange(rowNum, statusIdx + 1).setValue(
+        allResolved ? 'Pending — Requests Reviewed' : 'Pending — Has Requests'
+      );
+
+      if (readyDate && readyDateIdx !== -1) {
+        sheet.getRange(rowNum, readyDateIdx + 1).setValue(readyDate);
+      }
+
+      const orderRow = data[i];
+      sendRequestApprovalEmail(orderId, {
+        partnerName:    orderRow[headers.indexOf('PartnerName')],
+        submitterEmail: orderRow[headers.indexOf('SubmitterEmail')],
+        submitterName:  orderRow[headers.indexOf('SubmitterName')],
+        items:          updatedItems,
+      }, readyDate);
+
+      return { success: true };
+    }
+    return { success: false, error: 'Order not found.' };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+function sendRequestApprovalEmail(orderId, orderData, readyDate) {
+  try {
+    const requestLines = orderData.items.filter(i => i.isRequest);
+    const approved     = requestLines.filter(i => i.requestStatus === 'approved');
+    const declined     = requestLines.filter(i => i.requestStatus === 'declined');
+    const wsOnly       = requestLines.filter(i => i.requestStatus === 'wholesale_only');
+
+    const tableRows = items => items.map(i =>
+      `<tr><td style="padding:6px 8px;border-bottom:1px solid #eee;">${i.designName}</td>` +
+      `<td style="padding:6px 8px;border-bottom:1px solid #eee;">${i.qty}</td>` +
+      `<td style="padding:6px 8px;border-bottom:1px solid #eee;">${i.requestNote || ''}</td></tr>`
+    ).join('');
+
+    const th = `<tr><th style="text-align:left;padding:6px 8px;border-bottom:2px solid #eee;">Design</th>` +
+               `<th style="text-align:left;padding:6px 8px;border-bottom:2px solid #eee;">Qty</th>` +
+               `<th style="text-align:left;padding:6px 8px;border-bottom:2px solid #eee;">Note</th></tr>`;
+
+    const body =
+      `<p>Hi ${orderData.submitterName},</p>` +
+      `<p>Here is the update on your print requests (Order ${orderId}) for <strong>${orderData.partnerName}</strong>:</p>` +
+      (approved.length > 0 ?
+        `<h3 style="color:#5A9E6F;">Approved for Printing</h3>` +
+        `<table style="border-collapse:collapse;width:100%;margin-bottom:1rem;">${th}${tableRows(approved)}</table>` +
+        `<p><strong>Estimated ready date:</strong> ${readyDate || 'To be confirmed'}</p>` : '') +
+      (declined.length > 0 ?
+        `<h3 style="color:#E05C45;">Declined</h3>` +
+        `<table style="border-collapse:collapse;width:100%;margin-bottom:1rem;">${th}${tableRows(declined)}</table>` : '') +
+      (wsOnly.length > 0 ?
+        `<h3 style="color:#E8933A;">Wholesale Only</h3>` +
+        `<p>These designs are only available as wholesale orders (packs of 6, $150 minimum on first orders):</p>` +
+        `<table style="border-collapse:collapse;width:100%;margin-bottom:1rem;">` +
+        wsOnly.map(i => `<tr><td style="padding:6px 8px;border-bottom:1px solid #eee;">${i.designName}</td>` +
+          `<td style="padding:6px 8px;border-bottom:1px solid #eee;">${i.requestNote || ''}</td></tr>`).join('') +
+        `</table>` : '') +
+      `<p>Questions? Just reply to this email.</p>` +
+      `<p style="color:#A07860;font-size:0.85em;">Prints by Angel</p>`;
+
+    MailApp.sendEmail({
+      to:       orderData.submitterEmail,
+      subject:  `Print request update — ${orderData.partnerName} (${orderId})`,
+      htmlBody: body,
+    });
+  } catch (e) {
+    // Non-fatal
+  }
+}
+
+// =============================================================================
+// HELPERS
+// =============================================================================
+
+function isFirstWholesaleOrder(locationId) {
+  try {
+    const sheet = SPREADSHEET.getSheetByName('Orders');
+    if (!sheet) return true;
+    const data    = sheet.getDataRange().getValues();
+    const headers = data[0];
+    const locIdx    = headers.indexOf('LocationID');
+    const typeIdx   = headers.indexOf('PartnerType');
+    const statusIdx = headers.indexOf('Status');
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][locIdx])  === String(locationId) &&
+          String(data[i][typeIdx]).toLowerCase() === 'wholesale' &&
+          String(data[i][statusIdx]) === 'Fulfilled') {
+        return false;
+      }
+    }
+    return true;
+  } catch (e) {
+    return false; // Fail open — don't block an order over a lookup error
+  }
+}
+
+// =============================================================================
+// ONE-TIME MIGRATION — run once from GAS editor to populate Line and Wholesale
+// =============================================================================
+
+function migrateStatusLimitedToLine() {
+  try {
+    const sheet = SPREADSHEET.getSheetByName('Items');
+    if (!sheet) return { success: false, error: 'Items sheet not found.' };
+
+    const data      = sheet.getDataRange().getValues();
+    const headers   = data[0];
+    const statusIdx = headers.indexOf('Status');
+    const lineIdx   = headers.indexOf('Line');
+    const wsIdx     = headers.indexOf('Wholesale');
+
+    if (statusIdx === -1) return { success: false, error: 'No Status column found.' };
+    if (lineIdx   === -1) return { success: false, error: 'No Line column found — add it to the Items sheet first.' };
+    if (wsIdx     === -1) return { success: false, error: 'No Wholesale column found — add it to the Items sheet first.' };
+
+    let migrated    = 0;
+    let wsDefaulted = 0;
+
+    for (let i = 1; i < data.length; i++) {
+      const row       = data[i];
+      const status    = String(row[statusIdx] || '');
+      const line      = String(row[lineIdx]   || '').trim();
+      const ws        = row[wsIdx];
+      const rowNum    = i + 1;
+
+      // Status "Limited" → Status "Open" + Line "Limited Edition" + Wholesale false
+      if (status === 'Limited') {
+        sheet.getRange(rowNum, statusIdx + 1).setValue('Open');
+        sheet.getRange(rowNum, lineIdx   + 1).setValue('Limited Edition');
+        sheet.getRange(rowNum, wsIdx     + 1).setValue(false);
+        migrated++;
+        continue;
+      }
+
+      // Default empty Line to "Standard"
+      if (!line) {
+        sheet.getRange(rowNum, lineIdx + 1).setValue('Standard');
+      }
+
+      // Default Wholesale to TRUE for non-retired Standard designs that have no value yet
+      if (ws === '' || ws === null || ws === undefined || ws === false) {
+        const effectiveLine = line || 'Standard';
+        if (status !== 'Retired' && effectiveLine === 'Standard') {
+          sheet.getRange(rowNum, wsIdx + 1).setValue(true);
+          wsDefaulted++;
+        }
+      }
+    }
+
+    // Auto-migrate Season tags
+    const seasonNames  = ['Christmas', "Valentine's Day", "Mother's & Father's Day", 'Spring'];
+    const tagsSheet    = SPREADSHEET.getSheetByName('Tags');
+    const nearMatches  = [];
+
+    if (tagsSheet) {
+      const tData    = tagsSheet.getDataRange().getValues();
+      const tHeaders = tData[0];
+      const tNameIdx = tHeaders.indexOf('TagName');
+      const tCatIdx  = tHeaders.indexOf('Category');
+
+      for (let i = 1; i < tData.length; i++) {
+        const tName = String(tData[i][tNameIdx] || '').trim();
+        const tCat  = String(tData[i][tCatIdx]  || '');
+        if (seasonNames.includes(tName) && tCat !== 'Season') {
+          tagsSheet.getRange(i + 1, tCatIdx + 1).setValue('Season');
+        } else if (tCat !== 'Season' && tName.length > 2) {
+          const lower = tName.toLowerCase();
+          const isNear = seasonNames.some(s =>
+            lower.includes(s.toLowerCase().split(' ')[0]) || s.toLowerCase().includes(lower)
+          );
+          if (isNear) nearMatches.push(tName);
+        }
+      }
+    }
+
+    return {
+      success: true,
+      message: `Done. ${migrated} designs migrated from Status=Limited to Line=Limited Edition. ${wsDefaulted} designs defaulted to Wholesale=TRUE.`,
+      nearMatchTags: nearMatches,
     };
   } catch (e) {
     return { success: false, error: e.message };

@@ -610,8 +610,9 @@ function applyDashLayout() {
 // ============================================================
 // DASHBOARD — LINKS MODAL
 // ============================================================
-const RETAILER_PAGE_URL   = 'https://retailers.printsbyangel.com/';
-const PARTNER_REQUEST_URL = 'https://forms.gle/PQJk2YXAdvPbr53a6';
+const RETAILER_PAGE_URL      = 'https://retailers.printsbyangel.com/';
+const PARTNER_REQUEST_URL    = 'https://forms.gle/PQJk2YXAdvPbr53a6';
+const HOW_ORDERING_WORKS_URL = 'https://retailers.printsbyangel.com/how-ordering-works.html';
 
 function openLinksModal() {
   openModal(`
@@ -636,6 +637,14 @@ function openLinksModal() {
         <button class="btn btn-secondary btn-sm" onclick="window.open('${PARTNER_REQUEST_URL}','_blank')">↗ Open</button>
       </div>
       <div class="link-qr-wrap" id="qr-partner"></div>
+    </div>
+    <div class="link-card" style="margin-top:1rem;">
+      <div class="link-card-label">📋 How Ordering Works</div>
+      <div class="link-card-url" id="how-ordering-url">${HOW_ORDERING_WORKS_URL}</div>
+      <div class="link-card-actions">
+        <button class="btn btn-primary btn-sm" onclick="copyLink('how-ordering-url')">📋 Copy</button>
+        <button class="btn btn-secondary btn-sm" onclick="window.open('${HOW_ORDERING_WORKS_URL}','_blank')">↗ Open</button>
+      </div>
     </div>
     <div id="link-copy-toast" style="display:none;margin-top:0.75rem;text-align:center;font-size:0.875rem;color:var(--teal);font-weight:600;">✅ Copied!</div>`);
 
@@ -784,8 +793,10 @@ async function renderMasterItemsPage() {
   });
 }
 
-let currentItems    = [];
-let activeTagFilters = new Set();
+let currentItems      = [];
+let activeTagFilters  = new Set();
+let activeLineFilter  = null;   // null | 'Standard' | 'Limited Edition' | 'Naughty Cards'
+let activeWsFilter    = null;   // null | true | false
 
 async function loadFilterPanel() {
   if (!tagsCache) {
@@ -806,7 +817,30 @@ function renderFilterPanelBody() {
     if (!categories[tag.Category]) categories[tag.Category] = [];
     categories[tag.Category].push(tag);
   });
-  body.innerHTML = Object.entries(categories).map(([cat, tags]) => `
+
+  const lines = ['Standard', 'Limited Edition', 'Naughty Cards'];
+
+  body.innerHTML = `
+    <div class="filter-category">
+      <div class="filter-category-label">Line</div>
+      <div class="filter-tag-chips">
+        ${lines.map(line => `
+          <button class="filter-tag-chip ${activeLineFilter === line ? 'selected' : ''}"
+            onclick="toggleLineFilter('${line}', this)">
+            ${line}
+          </button>`).join('')}
+      </div>
+    </div>
+    <div class="filter-category">
+      <div class="filter-category-label">Wholesale</div>
+      <div class="filter-tag-chips">
+        <button class="filter-tag-chip ${activeWsFilter === true ? 'selected' : ''}"
+          onclick="toggleWsFilter(true, this)">Wholesale</button>
+        <button class="filter-tag-chip ${activeWsFilter === false ? 'selected' : ''}"
+          onclick="toggleWsFilter(false, this)">Not Wholesale</button>
+      </div>
+    </div>
+    ${Object.entries(categories).map(([cat, tags]) => `
     <div class="filter-category">
       <div class="filter-category-label">${cat}</div>
       <div class="filter-tag-chips">
@@ -816,7 +850,37 @@ function renderFilterPanelBody() {
             ${tag.TagName}
           </button>`).join('')}
       </div>
-    </div>`).join('');
+    </div>`).join('')}`;
+}
+
+function toggleLineFilter(line, btn) {
+  if (activeLineFilter === line) {
+    activeLineFilter = null;
+    btn.classList.remove('selected');
+  } else {
+    activeLineFilter = line;
+    document.querySelectorAll('#filter-panel-body .filter-tag-chip').forEach(b => {
+      if (b !== btn && ['Standard','Limited Edition','Naughty Cards'].includes(b.textContent.trim())) {
+        b.classList.remove('selected');
+      }
+    });
+    btn.classList.add('selected');
+  }
+}
+
+function toggleWsFilter(val, btn) {
+  if (activeWsFilter === val) {
+    activeWsFilter = null;
+    btn.classList.remove('selected');
+  } else {
+    activeWsFilter = val;
+    document.querySelectorAll('#filter-panel-body .filter-tag-chip').forEach(b => {
+      if (b !== btn && (b.textContent.trim() === 'Wholesale' || b.textContent.trim() === 'Not Wholesale')) {
+        b.classList.remove('selected');
+      }
+    });
+    btn.classList.add('selected');
+  }
 }
 
 function toggleTagFilter(tagId, btn) {
@@ -839,6 +903,8 @@ function closeFilterPanel() {
 
 function clearAllFilters() {
   activeTagFilters.clear();
+  activeLineFilter = null;
+  activeWsFilter   = null;
   renderFilterPanelBody();
   updateActiveFiltersBar();
   currentItems = itemsCache || [];
@@ -850,15 +916,27 @@ function applyFilters() {
   closeFilterPanel();
   updateActiveFiltersBar();
   currentItems = itemsCache || [];
+
+  if (activeLineFilter) {
+    currentItems = currentItems.filter(item => (item.Line || 'Standard') === activeLineFilter);
+  }
+  if (activeWsFilter !== null) {
+    currentItems = currentItems.filter(item => {
+      const ws = item.Wholesale === true || String(item.Wholesale).toUpperCase() === 'TRUE';
+      return activeWsFilter ? ws : !ws;
+    });
+  }
   if (activeTagFilters.size > 0) {
     currentItems = currentItems.filter(item =>
       (item._tagIds || []).some(id => activeTagFilters.has(id))
     );
   }
+
+  const totalActive = activeTagFilters.size + (activeLineFilter ? 1 : 0) + (activeWsFilter !== null ? 1 : 0);
   const count = document.getElementById('filter-count');
   if (count) {
-    if (activeTagFilters.size > 0) {
-      count.textContent = activeTagFilters.size;
+    if (totalActive > 0) {
+      count.textContent = totalActive;
       count.style.display = 'inline-flex';
       document.getElementById('filter-btn')?.classList.add('has-filters');
     } else {
@@ -935,9 +1013,10 @@ function renderItemsGrid(items) {
         <div class="item-card-name">${item.DisplayName || item.Name || 'Untitled'}</div>
         <div class="item-card-meta">
           <span class="item-card-price">$${Number(item.UnitPrice || 0).toFixed(2)}</span>
-          <span class="badge ${item.Status === 'Retired' ? 'badge-coral' : item.Status === 'Limited' ? 'badge-amber' : 'badge-green'}">
-            ${item.Status || 'Open'}
-          </span>
+          <span class="badge ${item.Status === 'Retired' ? 'badge-coral' : 'badge-green'}">${item.Status || 'Open'}</span>
+          ${item.Line === 'Limited Edition' ? '<span class="badge badge-amber" style="margin-left:0.25rem;">Limited</span>' : ''}
+          ${item.Line === 'Naughty Cards' ? '<span class="badge badge-coral" style="margin-left:0.25rem;">XXX</span>' : ''}
+          ${(item.Wholesale === true || String(item.Wholesale).toUpperCase() === 'TRUE') && item.Line !== 'Naughty Cards' ? '<span class="badge badge-teal" style="margin-left:0.25rem;font-size:0.65rem;">WS</span>' : ''}
         </div>
       </div>
     </div>`).join('')}</div>`;
@@ -957,7 +1036,11 @@ function renderItemsList(items) {
             <td><strong>${item.DisplayName || item.Name || 'Untitled'}</strong></td>
             <td style="color:var(--brown-light)">${item.ProductType || '—'}</td>
             <td><strong>$${Number(item.UnitPrice || 0).toFixed(2)}</strong></td>
-            <td><span class="badge ${item.Status === 'Retired' ? 'badge-coral' : item.Status === 'Limited' ? 'badge-amber' : 'badge-green'}">${item.Status || 'Open'}</span></td>
+            <td>
+              <span class="badge ${item.Status === 'Retired' ? 'badge-coral' : 'badge-green'}">${item.Status || 'Open'}</span>
+              ${item.Line === 'Limited Edition' ? '<span class="badge badge-amber" style="margin-left:0.2rem;">Limited</span>' : ''}
+              ${item.Line === 'Naughty Cards' ? '<span class="badge badge-coral" style="margin-left:0.2rem;">XXX</span>' : ''}
+            </td>
           </tr>`).join('')}
         </tbody>
       </table>
@@ -982,7 +1065,9 @@ async function openItemDetail(itemId) {
       <div class="detail-stat"><div class="detail-stat-label">On Hand</div><div class="detail-stat-value">${item.StartingAtHome || 0}</div></div>
       <div class="detail-stat"><div class="detail-stat-label">At Stores</div><div class="detail-stat-value" id="detail-at-stores-${item.ItemID}" style="color:var(--teal)">...</div></div>
       <div class="detail-stat"><div class="detail-stat-label">Total Printed</div><div class="detail-stat-value" id="detail-printed-${item.ItemID}" style="color:var(--amber)">...</div></div>
-      <div class="detail-stat"><div class="detail-stat-label">Status</div><div class="detail-stat-value" style="font-size:1rem">${item.Status === 'Retired' ? '🪦 Retired' : item.Status === 'Limited' ? '⭐ Limited' : '✅ Open'}</div></div>
+      <div class="detail-stat"><div class="detail-stat-label">Status</div><div class="detail-stat-value" style="font-size:1rem">${item.Status === 'Retired' ? '🪦 Retired' : '✅ Open'}</div></div>
+      <div class="detail-stat"><div class="detail-stat-label">Line</div><div class="detail-stat-value" style="font-size:1rem">${item.Line || 'Standard'}</div></div>
+      <div class="detail-stat"><div class="detail-stat-label">Wholesale</div><div class="detail-stat-value" style="font-size:1rem">${(item.Wholesale === true || String(item.Wholesale).toUpperCase() === 'TRUE') ? '✅ Yes' : '—'}</div></div>
     </div>
     ${item.Notes ? `<div style="margin-bottom:1rem;font-size:0.875rem;color:var(--brown-mid);background:var(--cream);padding:0.75rem;border-radius:var(--radius-sm);">📝 ${item.Notes}</div>` : ''}
     ${(item._tagIds && item._tagIds.length > 0) ? `<div style="margin-bottom:1rem;"><div style="font-size:0.75rem;font-weight:600;color:var(--brown-light);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.4rem;">Tags</div><div style="display:flex;flex-wrap:wrap;gap:0.35rem;">${item._tagIds.map(id => { const t = (tagsCache || []).find(t => t.TagID === id); return t ? `<span style="display:inline-block;padding:0.2rem 0.6rem;font-size:0.75rem;background:var(--cream);border:1px solid var(--brown-lightest);border-radius:999px;color:var(--brown-mid);">${t.TagName}</span>` : ''; }).join('')}</div></div>` : ''}
@@ -1025,6 +1110,14 @@ function navigateItemDetail(currentId, direction) {
   openItemDetail(items[nextIdx].ItemID);
 }
 
+function handleEditLineChange(select) {
+  const isLocked = select.value === 'Limited Edition' || select.value === 'Naughty Cards';
+  const wsField  = document.getElementById('edit-wholesale-field');
+  const wsCheck  = document.getElementById('edit-wholesale-check');
+  if (wsField) wsField.style.cssText = isLocked ? 'opacity:0.4;pointer-events:none;' : '';
+  if (wsCheck) { wsCheck.disabled = isLocked; if (isLocked) wsCheck.checked = false; }
+}
+
 function openEditItemModal(itemId) {
   const item = (itemsCache || []).find(i => String(i.ItemID) === String(itemId));
   if (!item) return;
@@ -1062,17 +1155,35 @@ function openEditItemModal(itemId) {
         <label class="field-label">Notes</label>
         <input class="field-input" type="text" name="notes" value="${item.Notes || ''}">
       </div>
+      <div class="form-grid">
+        <div class="form-field">
+          <label class="field-label">Line</label>
+          <select class="field-input" name="line" id="edit-line-select" onchange="handleEditLineChange(this)">
+            <option value="Standard" ${(!item.Line || item.Line === 'Standard') ? 'selected' : ''}>Standard</option>
+            <option value="Limited Edition" ${item.Line === 'Limited Edition' ? 'selected' : ''}>Limited Edition</option>
+            <option value="Naughty Cards" ${item.Line === 'Naughty Cards' ? 'selected' : ''}>Naughty Cards</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label class="field-label">Status</label>
+          <select class="field-input" name="status">
+            <option value="Open" ${(!item.Status || item.Status === 'Open') ? 'selected' : ''}>Open</option>
+            <option value="Retired" ${item.Status === 'Retired' ? 'selected' : ''}>Retired</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-field" id="edit-wholesale-field" style="${(item.Line === 'Limited Edition' || item.Line === 'Naughty Cards') ? 'opacity:0.4;pointer-events:none;' : ''}">
+        <label class="field-label" style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+          <input type="checkbox" name="wholesale" id="edit-wholesale-check"
+            ${(item.Wholesale === true || String(item.Wholesale).toUpperCase() === 'TRUE') ? 'checked' : ''}
+            ${(item.Line === 'Limited Edition' || item.Line === 'Naughty Cards') ? 'disabled' : ''}>
+          Wholesale design (shown on retailer page)
+        </label>
+        <div class="field-hint">Uncheck for home-stock-only designs. Forced off for Limited Edition and Naughty Cards.</div>
+      </div>
       <div class="form-field">
         <label class="field-label">Tags</label>
         <div id="edit-tags-container">${dogLoading('Loading tags...')}</div>
-      </div>
-      <div class="form-field">
-        <label class="field-label">Status</label>
-        <select class="field-input" name="status">
-          <option value="Open" ${(!item.Status || item.Status === 'Open') ? 'selected' : ''}>Open</option>
-          <option value="Limited" ${item.Status === 'Limited' ? 'selected' : ''}>Limited</option>
-          <option value="Retired" ${item.Status === 'Retired' ? 'selected' : ''}>Retired</option>
-        </select>
       </div>
       <div id="edit-item-btn-wrap"><button type="submit" class="btn btn-primary" style="width:100%;margin-top:0.5rem">Save Changes</button></div>
       <div id="edit-item-status" class="form-status"></div>
@@ -1085,12 +1196,16 @@ function openEditItemModal(itemId) {
     const btnWrap      = document.getElementById('edit-item-btn-wrap');
     const fd           = new FormData(e.target);
     const selectedTags = [...document.querySelectorAll('.edit-tag-check:checked')].map(c => c.value);
+    const line = fd.get('line') || 'Standard';
+    const wholesale = (line === 'Limited Edition' || line === 'Naughty Cards')
+      ? false
+      : document.getElementById('edit-wholesale-check')?.checked === true;
     const payload      = {
       action: 'updateItem',
       itemData: {
         itemId, designName: fd.get('designName'), itemType: fd.get('itemType'),
         unitPrice: fd.get('unitPrice'), photo: fixPhotoUrl(fd.get('photo')),
-        notes: fd.get('notes'), status: fd.get('status'), tags: selectedTags,
+        notes: fd.get('notes'), status: fd.get('status'), line, wholesale, tags: selectedTags,
       }
     };
     if (btnWrap) btnWrap.style.display = 'none';
@@ -1364,6 +1479,7 @@ async function deleteTagFromSystem(tagId) {
     if (result.success) {
       tagsCache = tagsCache.filter(t => t.TagID !== tagId);
       renderManageTagsList();
+      renderSettingsTagManager();
       showToast('Tag deleted', 'success');
     } else throw new Error(result.error);
   } catch (e) {
@@ -1439,12 +1555,28 @@ async function renderNewItemDesignPage() {
               <label class="field-label">Retail Price</label>
               <input class="field-input" type="number" name="unitPrice" id="new-item-price" placeholder="e.g. 6.00" step="0.01" min="0" readonly style="background:var(--cream);color:var(--brown-mid);">
             </div>
-            <div class="form-field">
-              <label class="field-label">Status</label>
-              <select class="field-input" name="status">
-                <option value="Open" selected>Open</option>
-                <option value="Limited">Limited</option>
-              </select>
+            <div class="form-grid">
+              <div class="form-field">
+                <label class="field-label">Line</label>
+                <select class="field-input" name="line" id="new-item-line" onchange="handleNewLineChange(this)">
+                  <option value="Standard" selected>Standard</option>
+                  <option value="Limited Edition">Limited Edition</option>
+                  <option value="Naughty Cards">Naughty Cards</option>
+                </select>
+              </div>
+              <div class="form-field">
+                <label class="field-label">Status</label>
+                <select class="field-input" name="status">
+                  <option value="Open" selected>Open</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-field" id="new-wholesale-field">
+              <label class="field-label" style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+                <input type="checkbox" name="wholesale" id="new-wholesale-check" checked>
+                Wholesale design (shown on retailer page)
+              </label>
+              <div class="field-hint">Uncheck for home-stock-only designs. Forced off for Limited Edition and Naughty Cards.</div>
             </div>
             <div class="form-field">
               <label class="field-label">First Print Run Quantity *</label>
@@ -1489,6 +1621,16 @@ async function renderNewItemDesignPage() {
       </div>`;
 
     document.getElementById('new-item-form').addEventListener('submit', handleAddNewItem);
+
+    // Line change handler — disable wholesale toggle for Limited Edition / Naughty Cards
+    window.handleNewLineChange = function(select) {
+      const isLocked = select.value === 'Limited Edition' || select.value === 'Naughty Cards';
+      const wsField  = document.getElementById('new-wholesale-field');
+      const wsCheck  = document.getElementById('new-wholesale-check');
+      if (wsField) wsField.style.cssText = isLocked ? 'opacity:0.4;pointer-events:none;' : '';
+      if (wsCheck) { wsCheck.disabled = isLocked; if (isLocked) wsCheck.checked = false; }
+    };
+
     document.getElementById('new-item-type').addEventListener('change', (e) => {
       const selected = e.target.selectedOptions[0];
       const priceInput = document.getElementById('new-item-price');
@@ -1570,7 +1712,7 @@ async function handleAddNewItem(event) {
   }
   const payload      = {
     action: 'addItem',
-    itemData: { itemId: rawData.itemId, designName: rawData.designName, itemType: rawData.itemType, unitPrice: rawData.unitPrice, photo: fixPhotoUrl(rawData.photo), notes: rawData.notes, dateAdded: rawData.dateAdded, status: rawData.status || 'Open', tags: selectedTags },
+    itemData: { itemId: rawData.itemId, designName: rawData.designName, itemType: rawData.itemType, unitPrice: rawData.unitPrice, photo: fixPhotoUrl(rawData.photo), notes: rawData.notes, dateAdded: rawData.dateAdded, status: rawData.status || 'Open', line: rawData.line || 'Standard', wholesale: rawData.line === 'Limited Edition' || rawData.line === 'Naughty Cards' ? false : document.getElementById('new-wholesale-check')?.checked === true, tags: selectedTags },
     printRunData: { itemId: rawData.itemId, quantity: rawData.firstRun, date: rawData.dateAdded }
   };
   try {
@@ -3071,9 +3213,13 @@ function filterOrders(status, btn) {
 }
 
 function renderOrderCard(o) {
-  const isPending    = o.Status === 'Pending';
-  const isWholesale  = o.PartnerType === 'wholesale';
-  const submittedDate = o.SubmittedAt ? new Date(o.SubmittedAt).toLocaleDateString() : '—';
+  const isPending      = o.Status?.startsWith('Pending') || false;
+  const hasRequests    = (o.items || []).some(item => item.isRequest);
+  const requestsReviewed = o.Status === 'Pending — Requests Reviewed';
+  const isWholesale    = o.PartnerType === 'wholesale';
+  const submittedDate  = o.SubmittedAt ? new Date(o.SubmittedAt).toLocaleDateString() : '—';
+  const readyDate      = o.ReadyDate || '';
+
   return `
     <div class="order-card ${isPending ? 'order-pending' : ''}">
       <div class="order-card-header">
@@ -3081,12 +3227,12 @@ function renderOrderCard(o) {
           <div class="order-id">${o.OrderID}</div>
           <div class="order-partner">${o.PartnerName || '—'}</div>
           <div class="order-meta">${submittedDate} · ${o.SubmitterName || '—'} (${o.SubmitterEmail || '—'})</div>
+          ${readyDate ? `<div class="order-meta" style="color:var(--teal);">Ready date: ${readyDate}</div>` : ''}
         </div>
-        <div style="text-align:right;">
-          <span class="badge ${isPending ? 'badge-amber' : 'badge-green'}">${o.Status}</span>
-          <div style="margin-top:0.3rem;">
-            <span class="badge ${isWholesale ? 'badge-teal' : 'badge-coral'}">${isWholesale ? 'Wholesale' : 'Consignment'}</span>
-          </div>
+        <div style="text-align:right;display:flex;flex-direction:column;gap:0.25rem;align-items:flex-end;">
+          <span class="badge ${isPending ? 'badge-amber' : 'badge-green'}">${o.Status || 'Pending'}</span>
+          <span class="badge ${isWholesale ? 'badge-teal' : 'badge-coral'}">${isWholesale ? 'Wholesale' : 'Consignment'}</span>
+          ${hasRequests ? '<span class="badge badge-amber" style="font-size:0.65rem;">Has Print Requests</span>' : ''}
         </div>
       </div>
       <div class="order-items-list">
@@ -3095,7 +3241,8 @@ function renderOrderCard(o) {
             <span class="order-item-id">#${item.itemId}</span>
             <span class="order-item-name">${item.designName}</span>
             <span class="order-item-qty">× ${item.qty}</span>
-            ${isWholesale ? `<span class="order-item-price">$${((item.wholesalePrice || 2) * item.qty).toFixed(2)}</span>` : ''}
+            ${item.isRequest ? `<span class="badge badge-amber" style="font-size:0.65rem;margin-left:0.3rem;">Print Request${item.requestStatus ? ' — ' + item.requestStatus : ''}</span>` : ''}
+            ${isWholesale && !item.isRequest ? `<span class="order-item-price">$${((item.wholesalePrice || 2) * item.qty).toFixed(2)}</span>` : ''}
           </div>`).join('')}
       </div>
       ${isWholesale ? `
@@ -3105,7 +3252,8 @@ function renderOrderCard(o) {
           <div>Est. Total: <strong>$${o.EstTotal || '—'}</strong></div>
         </div>` : ''}
       ${isPending ? `
-        <div class="order-actions">
+        <div class="order-actions" style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+          ${hasRequests && !requestsReviewed ? `<button class="btn btn-secondary btn-sm" onclick="openRequestApprovalModal('${o.OrderID}')">🖨️ Review Requests</button>` : ''}
           <button class="btn btn-primary btn-sm" onclick="openFulfillModal('${o.OrderID}')">✓ Fulfill Order</button>
         </div>` : `
         <div class="order-fulfilled-note" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
@@ -3122,8 +3270,8 @@ function renderOrdersList(orders) {
     return;
   }
 
-  const pending   = orders.filter(o => o.Status === 'Pending');
-  const fulfilled = orders.filter(o => o.Status !== 'Pending');
+  const pending   = orders.filter(o => (o.Status || '').startsWith('Pending'));
+  const fulfilled = orders.filter(o => !(o.Status || '').startsWith('Pending'));
 
   // Group fulfilled by year
   const fulfilledByYear = {};
@@ -3221,6 +3369,83 @@ async function undoFulfillment(orderId) {
   } catch (err) {
     showToast('Error: ' + err.message, 'error');
   }
+}
+
+// ============================================================
+// PRINT REQUEST APPROVAL MODAL
+// ============================================================
+function openRequestApprovalModal(orderId) {
+  const order = (window._ordersCache || []).find(o => o.OrderID === orderId);
+  if (!order) return;
+  const requestLines = (order.items || []).filter(item => item.isRequest);
+  if (requestLines.length === 0) return;
+
+  openModal(`
+    <div class="modal-title">🖨️ Review Print Requests — ${order.PartnerName}</div>
+    <p style="font-size:0.85rem;color:var(--brown-mid);margin-bottom:1rem;">
+      For each out-of-stock design, choose Approve, Decline, or Wholesale Only. Then set an estimated ready date for approved items.
+    </p>
+    <form id="request-approval-form">
+      ${requestLines.map(item => `
+        <div style="border:1px solid var(--border);border-radius:var(--radius-md);padding:0.75rem;margin-bottom:0.75rem;">
+          <div style="font-weight:600;margin-bottom:0.5rem;">#${item.itemId} — ${item.designName} <span style="font-size:0.8rem;color:var(--brown-light);">× ${item.qty} requested</span></div>
+          <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.4rem;">
+            <label style="display:flex;align-items:center;gap:0.3rem;cursor:pointer;">
+              <input type="radio" name="decision_${item.itemId}" value="approved" required> Approve
+            </label>
+            <label style="display:flex;align-items:center;gap:0.3rem;cursor:pointer;">
+              <input type="radio" name="decision_${item.itemId}" value="declined"> Decline
+            </label>
+            <label style="display:flex;align-items:center;gap:0.3rem;cursor:pointer;">
+              <input type="radio" name="decision_${item.itemId}" value="wholesale_only"> Wholesale Only
+            </label>
+          </div>
+          <input type="text" class="field-input" name="note_${item.itemId}" placeholder="Optional note to partner..." style="font-size:0.85rem;">
+        </div>`).join('')}
+      <div class="form-field" style="margin-top:0.75rem;">
+        <label class="field-label">Estimated Ready Date (for approved items)</label>
+        <input type="date" class="field-input" name="readyDate" value="${new Date(Date.now() + 21 * 86400000).toLocaleDateString('en-CA')}">
+      </div>
+      <div id="approval-form-status" class="form-status"></div>
+      <div id="approval-btn-wrap"><button type="submit" class="btn btn-primary" style="width:100%;margin-top:0.5rem;">Send Approvals to Partner</button></div>
+    </form>`);
+
+  document.getElementById('request-approval-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd      = new FormData(e.target);
+    const status  = document.getElementById('approval-form-status');
+    const btnWrap = document.getElementById('approval-btn-wrap');
+    if (btnWrap) btnWrap.style.display = 'none';
+    status.className = 'form-status loading';
+    status.textContent = 'Sending...';
+
+    const approvals = requestLines.map(item => ({
+      itemId:   item.itemId,
+      decision: fd.get('decision_' + item.itemId),
+      note:     fd.get('note_' + item.itemId) || '',
+    }));
+    const readyDate = fd.get('readyDate');
+
+    try {
+      const r      = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        body:   JSON.stringify({ action: 'approveOrderRequests', orderId, approvals, readyDate }),
+      });
+      const result = await r.json();
+      if (result.success) {
+        status.className  = 'form-status success';
+        status.textContent = '✅ Approvals sent to partner!';
+        showToast('Request approvals sent!', 'success');
+        setTimeout(() => { closeModal(); renderOrdersPage(); }, 1200);
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (err) {
+      status.className  = 'form-status error';
+      status.textContent = '❌ ' + err.message;
+      if (btnWrap) btnWrap.style.display = '';
+    }
+  });
 }
 
 // ============================================================
@@ -4072,52 +4297,151 @@ async function saveAudit() {
 // ============================================================
 // SETTINGS
 // ============================================================
-function renderSettingsPage() {
+async function renderSettingsPage() {
   appContainer.innerHTML = `
     <div class="page-header">
       <div><h1 class="page-title">Settings</h1><p class="page-subtitle">App preferences and configuration</p></div>
     </div>
-    <div class="settings-section">
-      <div class="settings-section-header">🏷️ Business Info</div>
-      <div class="settings-row">
-        <div class="settings-row-info"><div class="settings-row-label">Business Name</div><div class="settings-row-desc">Prints by Angel</div></div>
-        <button class="btn btn-secondary btn-sm">Edit</button>
+    <div id="settings-body">${dogLoading('Loading...')}</div>`;
+
+  try {
+    const [settingsRes, tagsRes] = await Promise.all([
+      fetch(`${GOOGLE_SCRIPT_URL}?action=getSettings`).then(r => r.json()),
+      fetch(`${GOOGLE_SCRIPT_URL}?action=getTags`).then(r => r.json()),
+    ]);
+    if (tagsRes.success) tagsCache = tagsRes.tags;
+    const settings = settingsRes.success ? settingsRes.settings : {};
+    const activeSeason = settings['activeSeason'] || '';
+
+    const seasons = ['', 'Christmas', "Valentine's Day", "Mother's & Father's Day", 'Spring'];
+
+    document.getElementById('settings-body').innerHTML = `
+      <div class="settings-section">
+        <div class="settings-section-header">🌟 Seasonal Spotlight</div>
+        <div class="settings-row" style="flex-wrap:wrap;gap:0.75rem;">
+          <div class="settings-row-info">
+            <div class="settings-row-label">Active Season</div>
+            <div class="settings-row-desc">Wholesale designs with this season tag appear in a spotlight section at the top of the retailer page.</div>
+          </div>
+          <select class="field-input" id="season-select" style="min-width:180px;" onchange="saveActiveSeason(this.value)">
+            ${seasons.map(s => `<option value="${s}" ${activeSeason === s ? 'selected' : ''}>${s || 'None (off)'}</option>`).join('')}
+          </select>
+        </div>
+        <div id="season-save-status" class="form-status" style="margin-top:0.5rem;"></div>
       </div>
-      <div class="settings-row">
-        <div class="settings-row-info"><div class="settings-row-label">Google Sheet ID</div><div class="settings-row-desc">1FiDZXPV6aimKpKUvzDCQczq01nCdvMZLzRhWq-DB50U</div></div>
-        <button class="btn btn-secondary btn-sm" onclick="showToast('Sheet is connected ✅')">Test</button>
+
+      <div class="settings-section">
+        <div class="settings-section-header">🏷️ Tag Manager</div>
+        <div style="margin-bottom:0.75rem;font-size:0.85rem;color:var(--brown-mid);">
+          Rename tags, move them between categories, or delete them. Deleting removes the tag from all designs.
+        </div>
+        <div id="settings-tags-body"></div>
+        <button class="btn btn-secondary btn-sm" style="margin-top:0.75rem;" onclick="openAddTagModal()">+ Add New Tag</button>
       </div>
-    </div>
-    <div class="settings-section">
-      <div class="settings-section-header">🔔 Notifications</div>
-      <div class="settings-row">
-        <div class="settings-row-info"><div class="settings-row-label">Low Stock Alerts</div><div class="settings-row-desc">Notify when a design has fewer than 5 cards on hand</div></div>
-        <label class="toggle-switch"><input type="checkbox" checked><span class="toggle-slider"></span></label>
+
+      <div class="settings-section">
+        <div class="settings-section-header">🏷️ Business Info</div>
+        <div class="settings-row">
+          <div class="settings-row-info"><div class="settings-row-label">Google Sheet ID</div><div class="settings-row-desc">1FiDZXPV6aimKpKUvzDCQczq01nCdvMZLzRhWq-DB50U</div></div>
+          <button class="btn btn-secondary btn-sm" onclick="showToast('Sheet is connected ✅')">Test</button>
+        </div>
       </div>
-      <div class="settings-row">
-        <div class="settings-row-info"><div class="settings-row-label">Monthly Summary</div><div class="settings-row-desc">Email yourself a monthly sales summary</div></div>
-        <label class="toggle-switch"><input type="checkbox"><span class="toggle-slider"></span></label>
+
+      <div class="settings-section">
+        <div class="settings-section-header">📊 Reports</div>
+        <div class="settings-row">
+          <div class="settings-row-info"><div class="settings-row-label">Google Drive Folder</div><div class="settings-row-desc">Where reports are saved when you tap "Save to Drive"</div></div>
+          <button class="btn btn-secondary btn-sm">Set Folder</button>
+        </div>
       </div>
-      <div class="settings-row">
-        <div class="settings-row-info"><div class="settings-row-label">Vending Machine Removal Reminders</div><div class="settings-row-desc">Notified 7 days, 3 days, 24 hours, and day-of removal</div></div>
-        <label class="toggle-switch"><input type="checkbox" checked><span class="toggle-slider"></span></label>
+
+      <div style="margin-top:1rem;text-align:center;">
+        <p style="font-size:0.75rem;color:var(--brown-light);">Prints by Angel Inventory App · Built with ♥</p>
+      </div>`;
+
+    renderSettingsTagManager();
+  } catch (e) {
+    document.getElementById('settings-body').innerHTML = dogError('Could not load settings: ' + e.message);
+  }
+}
+
+async function saveActiveSeason(value) {
+  const status = document.getElementById('season-save-status');
+  if (status) { status.className = 'form-status loading'; status.textContent = 'Saving...'; }
+  try {
+    const r      = await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action: 'updateSettings', key: 'activeSeason', value }) });
+    const result = await r.json();
+    if (result.success) {
+      if (status) { status.className = 'form-status success'; status.textContent = value ? `✅ Spotlight set to: ${value}` : '✅ Spotlight turned off'; }
+      setTimeout(() => { if (status) status.textContent = ''; }, 3000);
+    } else throw new Error(result.error);
+  } catch (e) {
+    if (status) { status.className = 'form-status error'; status.textContent = '❌ ' + e.message; }
+  }
+}
+
+function renderSettingsTagManager() {
+  const body = document.getElementById('settings-tags-body');
+  if (!body || !tagsCache) return;
+  const categories = {};
+  (tagsCache || []).forEach(tag => {
+    if (!categories[tag.Category]) categories[tag.Category] = [];
+    categories[tag.Category].push(tag);
+  });
+  const allCategories = [...new Set([
+    'Theme', 'Format', 'Season', 'Region',
+    ...Object.keys(categories)
+  ])];
+
+  body.innerHTML = Object.entries(categories).map(([cat, tags]) => `
+    <div style="margin-bottom:1.25rem;">
+      <div style="font-size:0.75rem;font-weight:600;color:var(--brown-light);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.5rem;">${cat}</div>
+      <div style="display:flex;flex-direction:column;gap:0.4rem;">
+        ${tags.map(tag => `
+          <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;" id="stag-row-${tag.TagID}">
+            <input type="text" class="field-input" value="${tag.TagName}" id="stag-name-${tag.TagID}"
+              style="flex:1;min-width:120px;max-width:220px;font-size:0.85rem;padding:0.3rem 0.5rem;">
+            <select class="field-input" id="stag-cat-${tag.TagID}" style="flex:1;min-width:100px;max-width:160px;font-size:0.85rem;padding:0.3rem 0.5rem;">
+              ${allCategories.map(c => `<option value="${c}" ${c === cat ? 'selected' : ''}>${c}</option>`).join('')}
+            </select>
+            <button class="btn btn-secondary btn-sm" onclick="saveTagEdits('${tag.TagID}')">Save</button>
+            <button onclick="deleteTagFromSystem('${tag.TagID}')" style="background:none;border:none;color:var(--coral);cursor:pointer;font-size:1rem;padding:0.2rem 0.4rem;" title="Delete tag">✕</button>
+            <span id="stag-status-${tag.TagID}" style="font-size:0.75rem;"></span>
+          </div>`).join('')}
       </div>
-    </div>
-    <div class="settings-section">
-      <div class="settings-section-header">🏷️ Tag Management</div>
-      <div class="settings-row">
-        <div class="settings-row-info"><div class="settings-row-label">Manage Tags & Categories</div><div class="settings-row-desc">Add, edit, or organize card tags</div></div>
-        <button class="btn btn-secondary btn-sm" onclick="openManageTagsModal()">Manage Tags</button>
-      </div>
-    </div>
-    <div class="settings-section">
-      <div class="settings-section-header">📊 Reports</div>
-      <div class="settings-row">
-        <div class="settings-row-info"><div class="settings-row-label">Google Drive Folder</div><div class="settings-row-desc">Where reports are saved when you tap "Save to Drive"</div></div>
-        <button class="btn btn-secondary btn-sm">Set Folder</button>
-      </div>
-    </div>
-    <div style="margin-top:1rem;text-align:center;">
-      <p style="font-size:0.75rem;color:var(--brown-light);">Prints by Angel Inventory App · Built with ♥</p>
-    </div>`;
+    </div>`).join('');
+}
+
+async function saveTagEdits(tagId) {
+  const nameInput = document.getElementById('stag-name-' + tagId);
+  const catSelect = document.getElementById('stag-cat-'  + tagId);
+  const statusEl  = document.getElementById('stag-status-' + tagId);
+  if (!nameInput || !catSelect) return;
+
+  const newName = nameInput.value.trim();
+  const newCat  = catSelect.value;
+  if (!newName) { if (statusEl) { statusEl.style.color='var(--coral)'; statusEl.textContent='Name required'; } return; }
+  if (statusEl) { statusEl.style.color='var(--brown-light)'; statusEl.textContent='Saving...'; }
+
+  try {
+    const tag = (tagsCache || []).find(t => t.TagID === tagId);
+    const calls = [];
+    if (tag && tag.TagName !== newName) calls.push(
+      fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action: 'renameTag', tagId, newName }) }).then(r => r.json())
+    );
+    if (tag && tag.Category !== newCat) calls.push(
+      fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action: 'updateTagCategory', tagId, newCategory: newCat }) }).then(r => r.json())
+    );
+    if (calls.length === 0) { if (statusEl) { statusEl.style.color='var(--brown-light)'; statusEl.textContent='No changes'; } return; }
+    const results = await Promise.all(calls);
+    const failed  = results.find(r => !r.success);
+    if (failed) throw new Error(failed.error);
+
+    // Update cache
+    if (tag) { tag.TagName = newName; tag.Category = newCat; }
+    if (statusEl) { statusEl.style.color='var(--teal)'; statusEl.textContent='✓ Saved'; }
+    setTimeout(() => renderSettingsTagManager(), 800);
+  } catch (err) {
+    if (statusEl) { statusEl.style.color='var(--coral)'; statusEl.textContent='❌ ' + err.message; }
+  }
 }
