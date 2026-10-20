@@ -1199,12 +1199,14 @@ function openEditItemModal(itemId) {
         notes: fd.get('notes'), status: document.querySelector('#edit-item-form select[name="status"]')?.value || fd.get('status'), line, explicit, tags: selectedTags,
       }
     };
+    console.log('💾 updateItem payload:', JSON.stringify(payload, null, 2));
     if (btnWrap) btnWrap.style.display = 'none';
     status.className = 'form-status loading';
     status.textContent = 'Saving...';
     try {
       const r      = await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify(payload) });
       const result = await r.json();
+      console.log('💾 updateItem result:', result);
       if (result.success) {
         itemsCache = null;
         status.className  = 'form-status success';
