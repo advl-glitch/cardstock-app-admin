@@ -1189,14 +1189,14 @@ function openEditItemModal(itemId) {
     const btnWrap      = document.getElementById('edit-item-btn-wrap');
     const fd           = new FormData(e.target);
     const selectedTags = [...document.querySelectorAll('.edit-tag-check:checked')].map(c => c.value);
-    const line     = fd.get('line') || 'Wholesale Line';
+    const line     = document.getElementById('edit-line-select')?.value || fd.get('line') || 'Wholesale Line';
     const explicit = document.getElementById('edit-explicit-check')?.checked === true;
     const payload  = {
       action: 'updateItem',
       itemData: {
         itemId, designName: fd.get('designName'), itemType: fd.get('itemType'),
         unitPrice: fd.get('unitPrice'), photo: fixPhotoUrl(fd.get('photo')),
-        notes: fd.get('notes'), status: fd.get('status'), line, explicit, tags: selectedTags,
+        notes: fd.get('notes'), status: document.querySelector('#edit-item-form select[name="status"]')?.value || fd.get('status'), line, explicit, tags: selectedTags,
       }
     };
     if (btnWrap) btnWrap.style.display = 'none';
