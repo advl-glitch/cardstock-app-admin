@@ -267,6 +267,15 @@ function updateItem(itemData) {
     const headers = data[0];
     const idIndex = headers.indexOf('ItemID');
 
+    // Auto-add missing columns
+    ['Line', 'Explicit'].forEach(col => {
+      if (headers.indexOf(col) === -1) {
+        const newColIdx = headers.length;
+        sheet.getRange(1, newColIdx + 1).setValue(col);
+        headers.push(col);
+      }
+    });
+
     for (let i = 1; i < data.length; i++) {
       if (String(data[i][idIndex]) === String(itemData.itemId)) {
         const rowNum = i + 1;
