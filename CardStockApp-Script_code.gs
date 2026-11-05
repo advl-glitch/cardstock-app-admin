@@ -155,14 +155,18 @@ function getNextItemId() {
     const idIndex = headers.indexOf('ItemID');
     if (idIndex === -1) return { success: false, error: 'ItemID column not found.' };
 
-    let maxId = 0;
+    const usedIds = new Set();
     data.forEach(row => {
       const id = parseInt(row[idIndex], 10);
-      if (!isNaN(id) && id > maxId) maxId = id;
+      if (!isNaN(id)) usedIds.add(id);
     });
 
-    const nextId = String(maxId + 1); // plain integer — JS display layer adds padding
-    return { success: true, nextId };
+    // Fill the lowest open gap first — if designs are logged out of order
+    // (e.g. 64 before 59), this keeps suggesting 59 until it's actually used.
+    let nextId = 1;
+    while (usedIds.has(nextId)) nextId++;
+
+    return { success: true, nextId: String(nextId) };
   } catch (e) {
     return { success: false, error: e.message };
   }
