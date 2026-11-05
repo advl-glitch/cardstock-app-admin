@@ -136,6 +136,9 @@ function getItems() {
       return item;
     }).filter(item => item.ItemID && item.ItemID.trim() !== '');
 
+    // Designs can be added out of sequence, so order by number rather than sheet row
+    items.sort(function(a, b) { return parseInt(a.ItemID, 10) - parseInt(b.ItemID, 10); });
+
     return { success: true, items };
   } catch (e) {
     return { success: false, error: e.message };
@@ -215,6 +218,23 @@ function addItem(itemData, printRunData) {
     if (!itemsSheet) return { success: false, error: 'Sheet "Items" not found.' };
 
     const headers = itemsSheet.getRange(1, 1, 1, itemsSheet.getLastColumn()).getValues()[0];
+
+    // Design numbers can be entered manually, so reject duplicates before writing
+    const idIdx = headers.indexOf('ItemID');
+    const requestedId = parseInt(itemData.itemId, 10);
+    if (isNaN(requestedId) || requestedId < 1) {
+      return { success: false, error: 'Design number must be a whole number.' };
+    }
+    if (idIdx !== -1 && itemsSheet.getLastRow() > 1) {
+      const existingIds = itemsSheet.getRange(2, idIdx + 1, itemsSheet.getLastRow() - 1, 1).getValues();
+      for (let i = 0; i < existingIds.length; i++) {
+        if (parseInt(existingIds[i][0], 10) === requestedId) {
+          return { success: false, error: 'Design #' + requestedId + ' already exists. Pick another number.' };
+        }
+      }
+    }
+    itemData.itemId = requestedId;
+
     const now = new Date().toISOString();
     const itemIdDisplay = String(itemData.itemId).padStart(3, '0');
     const displayName = itemIdDisplay + ' — ' + itemData.designName;

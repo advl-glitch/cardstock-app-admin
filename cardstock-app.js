@@ -1489,15 +1489,17 @@ async function renderNewItemDesignPage() {
     <div class="form-page-container">${dogLoading('Loading...')}</div>`;
 
   try {
-    const [idRes, tagsRes, typesRes] = await Promise.all([
+    const [idRes, tagsRes, typesRes, itemsRes] = await Promise.all([
       fetch(`${GOOGLE_SCRIPT_URL}?action=getNextItemId`).then(r => r.json()),
       fetch(`${GOOGLE_SCRIPT_URL}?action=getTags`).then(r => r.json()),
       fetch(`${GOOGLE_SCRIPT_URL}?action=getProductTypes`).then(r => r.json()),
+      itemsCache ? Promise.resolve(null) : fetch(`${GOOGLE_SCRIPT_URL}?action=getItems`).then(r => r.json()),
     ]);
     // Bail out if user navigated away while fetching
     if (sessionStorage.getItem('pba_current_page') !== 'new-item-design') return;
     if (!idRes.success) throw new Error(idRes.error);
     if (tagsRes.success) tagsCache = tagsRes.tags;
+    if (itemsRes && itemsRes.success) itemsCache = itemsRes.items.filter(i => i.ItemID);
     const productTypes = typesRes.success ? typesRes.types : [];
     const nextId = idRes.nextId;
     const today  = new Date().toLocaleDateString('en-CA');
@@ -1517,9 +1519,9 @@ async function renderNewItemDesignPage() {
             <div class="form-section-title">Design Information</div>
             <div class="form-grid">
               <div class="form-field">
-                <label class="field-label">Design Number</label>
-                <input class="field-input" type="text" name="itemId" value="${nextId}" readonly>
-                <div class="field-hint">Auto-generated — next in sequence</div>
+                <label class="field-label">Design Number *</label>
+                <input class="field-input" type="number" name="itemId" id="new-item-id" value="${nextId}" min="1" step="1" inputmode="numeric" required>
+                <div class="field-hint" id="new-item-id-hint">Next in sequence (${nextId}) — change it to add out of order</div>
               </div>
               <div class="form-field">
                 <label class="field-label">Date Added</label>
@@ -1612,6 +1614,26 @@ async function renderNewItemDesignPage() {
 
     document.getElementById('new-item-form').addEventListener('submit', handleAddNewItem);
 
+    // Design Number — live feedback when typing a number out of sequence
+    const idInput = document.getElementById('new-item-id');
+    idInput.addEventListener('input', () => {
+      const hint = document.getElementById('new-item-id-hint');
+      const n = parseInt(idInput.value, 10);
+      hint.style.color = '';
+      if (!idInput.value) { hint.textContent = `Next in sequence (${nextId}) — change it to add out of order`; return; }
+      if (isNaN(n) || n < 1) { hint.textContent = 'Enter a whole number.'; hint.style.color = 'var(--coral)'; return; }
+      const taken = (itemsCache || []).find(i => parseInt(i.ItemID, 10) === n);
+      if (taken) {
+        hint.textContent = `⚠️ #${String(n).padStart(3, '0')} is already used by "${taken.Name || taken.DisplayName}"`;
+        hint.style.color = 'var(--coral)';
+      } else if (String(n) === String(nextId)) {
+        hint.textContent = `Next in sequence (${nextId}) — change it to add out of order`;
+      } else {
+        hint.textContent = `✓ #${String(n).padStart(3, '0')} is available`;
+        hint.style.color = 'var(--green)';
+      }
+    });
+
     window.handleNewLineChange = function(select) {
       // No side effects — Explicit is independent of Card Line
     };
@@ -1672,6 +1694,22 @@ async function handleAddNewItem(event) {
   status.textContent = 'Saving design...';
   const formData     = new FormData(form);
   const rawData      = Object.fromEntries(formData.entries());
+  // Validate the (now editable) design number
+  const itemIdNum = parseInt(rawData.itemId, 10);
+  if (isNaN(itemIdNum) || itemIdNum < 1) {
+    status.className = 'form-status error';
+    status.textContent = '❌ Design number must be a whole number.';
+    if (btnWrap) btnWrap.style.display = '';
+    return;
+  }
+  const dupe = (itemsCache || []).find(i => parseInt(i.ItemID, 10) === itemIdNum);
+  if (dupe) {
+    status.className = 'form-status error';
+    status.textContent = `❌ Design #${String(itemIdNum).padStart(3, '0')} is already used by "${dupe.Name || dupe.DisplayName}". Pick another number.`;
+    if (btnWrap) btnWrap.style.display = '';
+    return;
+  }
+  rawData.itemId = String(itemIdNum);
   // Handle "Add New Type" — override itemType and price
   if (rawData.itemType === '__new__') {
     const newName = document.getElementById('new-type-name')?.value.trim();
